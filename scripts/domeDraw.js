@@ -1,258 +1,395 @@
-// app.js
 window.domeDrawing = (function() {
-    // 스타일을 동적으로 추가
-    const style = document.createElement('style');
-    style.innerHTML = `
-
-    #editor {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        background: rgba(255, 255, 255, 0.8);
-        padding: 10px;
-        z-index: 10;
-    }
-    #editor input, #editor button {
-        margin-top: 5px;
-        width: 100%;
-    }
-    `;
-    document.head.appendChild(style);
-
     const viewer = window.CesiumViewer;
+    let domes = {}; // Store domes by ID
 
-    let currentDome;
+    let areDomesVisible = true;
 
-    function createEditor() {
-        // 편집기 UI 생성
-        const editor = document.createElement('div');
-        editor.id = 'editor';
-        editor.style.position = 'absolute';
-        editor.style.top = '10px';
-        editor.style.left = '10px';
-        editor.style.background = 'rgba(255, 255, 255, 0.8)';
-        editor.style.padding = '10px';
-        editor.style.zIndex = '10';
-        editor.style.width = '200px'; // 최소 크기 설정
-        editor.style.cursor = 'grab'; // 손잡이 커서
-        document.body.appendChild(editor);
+    function createControlPanel() {
+        if (document.getElementById('controlPanel')) {
+            return;
+        }
 
-        const dragHeader = document.createElement('div');
-        dragHeader.style.display = 'flex';
-        dragHeader.style.justifyContent = 'space-between';
-        dragHeader.style.alignItems = 'center';
-        dragHeader.style.cursor = 'move'; // 드래그 표시
-        dragHeader.style.background = 'lightgray';
-        dragHeader.style.padding = '4px';
-        dragHeader.style.position = 'relative'; // 상대 위치 설정
-        dragHeader.textContent = 'Editor';
+        const controlPanel = document.createElement('div');
+        controlPanel.id = 'controlPanel';
+        controlPanel.style.position = 'absolute';
+        controlPanel.style.top = '150px';
+        controlPanel.style.left = '10px';
+        controlPanel.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+        controlPanel.style.padding = '10px';
+        controlPanel.style.borderRadius = '10px';
+        controlPanel.style.zIndex = '100';
+        controlPanel.style.boxShadow = '3px 3px 10px rgba(0, 0, 0, 0.3)';
+        controlPanel.style.border = '1px solid #ccc';
 
-        // 닫기 버튼 추가
-        const closeButton = document.createElement('button');
-        closeButton.textContent = 'X';
-        closeButton.style.cursor = 'pointer';
-        closeButton.style.border = 'none';
-        closeButton.style.marginLeft = '10px'; // 간격 조정
-        closeButton.style.padding = '4px';
-        closeButton.addEventListener('click', function() {
-            editor.style.display = 'none'; // 창 숨기기
-        });
+        controlPanel.innerHTML = `
+            <div>
+            <h3 style="margin: 0 0 10px 0; text-align: center;">방공망 제어</h3> 
+                <div>
+                    <label for="domeId">Dome ID: </label>
+                    <input type="text" id="domeId">
+                </div>
+                <div>
+                    <label for="longitude">Longitude: </label>
+                    <input type="number" id="longitude" step="0.0001" value="126.9211">
+                </div>
+                <div>
+                    <label for="latitude">Latitude: </label>
+                    <input type="number" id="latitude" step="0.0001" value="37.5252">
+                </div>
+                <div>
+                    <label for="radius">Radius: </label>
+                    <input type="number" id="radius" step="1" value="50000">
+                </div>
+                <div>
+                    <label for="color">Color: </label>
+                    <input type="text" id="color" value="rgba(0, 0, 255, 0.5)">
+                </div>
+                <div>
+                    <label for="renderMode">Render Mode: </label>
+                    <select id="renderMode">
+                        <option value="wireframe">Wireframe</option>
+                        <option value="transparent">Transparent</option>
+                        <option value="mesh">Mesh</option>
+                    </select>
+                </div>
+                <button id="createDomeButton">Create Dome</button>
+                <button id="removeDomeButton">Remove Dome by ID</button>
+                <button id="removeAllDomesButton">Remove All Domes</button>
+                <button id="saveDomesButton">Save Domes as JSON</button>
+                <button id="toggleButton">토글</button>
+                <button id="closePanelButton">Close Panel</button>                
+                <div>
+                    <label for="domejsonFileInput">Load Domes from JSON: </label>
+                    <input type="file" id="domejsonFileInput" accept=".json">
+                    <button id="loadDomesButton">Load Domes</button>
+                </div>
 
-        dragHeader.appendChild(closeButton);
-        editor.appendChild(dragHeader);
+            </div>
+        `;
 
-        const createLabeledInput = (labelText, inputId, defaultValue, type = 'number', step = '0.1') => {
-            const label = document.createElement('label');
-            label.textContent = labelText;
-            const input = document.createElement('input');
-            input.type = type;
-            input.id = inputId;
-            input.value = defaultValue;
-            input.style.width = '100%'; // 입력 필드 크기 조정
-            if (type === 'number') {
-                input.step = step;
+        document.body.appendChild(controlPanel);
+        makeElementDraggable(controlPanel);
+
+        document.getElementById('createDomeButton').addEventListener('click', function() {
+            const domeId = document.getElementById('domeId').value;
+            if (domeId in domes) {
+                console.warn(`Dome with ID '${domeId}' already exists.`);
+                return;
             }
-            label.appendChild(input);
-            //label.appendChild(document.createElement('br')); // 줄바꿈 추가
 
-            const valueDisplay = document.createElement('span');
-            valueDisplay.id = inputId + 'Value';
-            valueDisplay.textContent = defaultValue;
-            label.appendChild(document.createElement('br'));
-            label.appendChild(valueDisplay);
-
-            input.addEventListener('input', function() {
-                document.getElementById(inputId + 'Value').textContent = input.value;
-            });
-        
-            
-
-            return label;
-        };
-
-        editor.appendChild(createLabeledInput('Longitude:', 'longitude', '126.9292'));
-        editor.appendChild(createLabeledInput('Latitude:', 'latitude', '37.5252'));
-        editor.appendChild(createLabeledInput('Height:', 'height', '100', 'number', '10'));
-        editor.appendChild(createLabeledInput('Radius:', 'radius', '5000', 'number', '100'));
-        editor.appendChild(createLabeledInput('Red:', 'red', '1', 'range', '0.1').childNodes[1]);
-        editor.appendChild(createLabeledInput('Green:', 'green', '0', 'range', '0.1').childNodes[1]);
-        editor.appendChild(createLabeledInput('Blue:', 'blue', '0', 'range', '0.1').childNodes[1]);
-        editor.appendChild(createLabeledInput('Alpha:', 'alpha', '0.5', 'range', '0.1').childNodes[1]);
-
-        const drawDomeButton = document.createElement('button');
-        drawDomeButton.textContent = 'Draw Dome';
-        drawDomeButton.style.marginTop = '5px';
-        drawDomeButton.style.width = '100%';
-        editor.appendChild(drawDomeButton);
-
-        // 드로잉 기능
-        drawDomeButton.addEventListener('click', function() {
             const longitude = parseFloat(document.getElementById('longitude').value);
             const latitude = parseFloat(document.getElementById('latitude').value);
-            const height = parseFloat(document.getElementById('height').value);
             const radius = parseFloat(document.getElementById('radius').value);
+            const color = document.getElementById('color').value;
+            const renderMode = document.getElementById('renderMode').value;
 
-            const red = parseFloat(document.getElementById('red').value);
-            const green = parseFloat(document.getElementById('green').value);
-            const blue = parseFloat(document.getElementById('blue').value);
-            const alpha = parseFloat(document.getElementById('alpha').value);
-
-            const color = new Cesium.Color(red, green, blue, alpha);
-
-            if (currentDome) {
-                viewer.scene.primitives.remove(currentDome);
-            }
-
-            currentDome = drawDome(longitude, latitude, height, radius, color);
+            createDome(domeId, longitude, latitude, radius, color, renderMode);
         });
 
+        document.getElementById('removeDomeButton').addEventListener('click', function() {
+            const domeId = document.getElementById('domeId').value;
+            removeDome(domeId);
+        });
+
+        document.getElementById('removeAllDomesButton').addEventListener('click', removeAllDomes);
+
+        document.getElementById('loadDomesButton').addEventListener('click', loadDomesFromJson);
+
+        document.getElementById('saveDomesButton').addEventListener('click', saveDomesToJson);
+
+        document.getElementById('toggleButton').addEventListener('click', toggleDomesVisibility);
+
+        document.getElementById('closePanelButton').addEventListener('click', function() {
+            controlPanel.remove();
+        });
+    }
+
+    function toggleDomesVisibility() {
+        areDomesVisible = !areDomesVisible;
+        for (const domeId in domes) {
+            if (domes[domeId]) {
+                const domeEntities = domes[domeId].entities;
+                domeEntities.forEach(entity => {
+                    entity.show = areDomesVisible;
+                });
+            }
+        }
+
+        const toggleButton = document.getElementById('toggleVisibilityButton');
+        toggleButton.textContent = areDomesVisible ? 'Hide Domes' : 'Show Domes';
+    }
+
+    function makeElementDraggable(element) {
         let isDragging = false;
-        let offset = { x: 0, y: 0 };
+        let offsetX = 0, offsetY = 0, initialX = 0, initialY = 0;
 
-        dragHeader.addEventListener('mousedown', (e) => {
-            isDragging = true;
-            offset.x = e.clientX - editor.offsetLeft;
-            offset.y = e.clientY - editor.offsetTop;
-            editor.style.cursor = 'grabbing';
+        element.addEventListener('mousedown', dragMouseDown);
+
+        function dragMouseDown(e) {
+            if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'select') {
+                return;
+            }
+
             e.preventDefault();
+            initialX = e.clientX;
+            initialY = e.clientY;
+            isDragging = true;
+            document.addEventListener('mousemove', elementDrag);
+            document.addEventListener('mouseup', closeDragElement);
+        }
+
+        function elementDrag(e) {
+            if (!isDragging) return;
+
+            e.preventDefault();
+            offsetX = initialX - e.clientX;
+            offsetY = initialY - e.clientY;
+            initialX = e.clientX;
+            initialY = e.clientY;
+            element.style.top = (element.offsetTop - offsetY) + "px";
+            element.style.left = (element.offsetLeft - offsetX) + "px";
+        }
+
+        function closeDragElement() {
+            isDragging = false;
+            document.removeEventListener('mousemove', elementDrag);
+            document.removeEventListener('mouseup', closeDragElement);
+        }
+    }
+
+    function createDome(domeId, longitude, latitude, radius, color, renderMode) {
+        let dome;
+        switch (renderMode) {
+            case 'mesh':
+                dome = createMeshDome(longitude, latitude, radius, color);
+                break;
+            case 'transparent':
+                dome = createTransparentDome(longitude, latitude, radius, color);
+                break;
+            default:
+                dome = createWireframeDome(longitude, latitude, radius, color);
+                break;
+        }
+        if (dome) {
+            domes[domeId] = {
+                entities: dome,
+                config: { domeId, longitude, latitude, radius, color, renderMode }
+            };
+        }
+    }
+
+    function createWireframeDome(longitude, latitude, radius, color) {
+        const cartesianPosition = Cesium.Cartesian3.fromDegrees(longitude, latitude);
+        const verticalSegments = 64;
+        const horizontalSegments = 32;
+        const transform = Cesium.Transforms.eastNorthUpToFixedFrame(cartesianPosition);
+        const entities = []; // To track entities
+        
+        // Draw horizontal circles
+        for (let j = 0; j <= horizontalSegments; j++) {
+            const phi = (Math.PI / 2) * (j / horizontalSegments);
+            const circlePositions = [];
+            for (let i = 0; i <= verticalSegments; i++) {
+                const theta = (Math.PI * 2) * (i / verticalSegments);
+                const x = radius * Math.cos(theta) * Math.sin(phi);
+                const y = radius * Math.sin(theta) * Math.sin(phi);
+                const z = radius * Math.cos(phi);
+    
+                const position = new Cesium.Cartesian3(x, y, z);
+                const globalPosition = Cesium.Matrix4.multiplyByPoint(transform, position, new Cesium.Cartesian3());
+                circlePositions.push(globalPosition);
+            }
+    
+            const entity = viewer.entities.add({
+                polyline: {
+                    positions: circlePositions,
+                    width: 1.5,
+                    material: Cesium.Color.fromCssColorString(color).withAlpha(0.2),
+                 }
+                
+            });
+            entities.push(entity);
+        }
+        
+        // Draw vertical segments
+        for (let i = 0; i <= verticalSegments; i++) {
+            const theta = (Math.PI * 2) * (i / verticalSegments);
+            const verticalPositions = [];
+            for (let j = 0; j <= horizontalSegments; j++) {
+                const phi = (Math.PI / 2) * (j / horizontalSegments);
+                const x = radius * Math.cos(theta) * Math.sin(phi);
+                const y = radius * Math.sin(theta) * Math.sin(phi);
+                const z = radius * Math.cos(phi);
+    
+                const position = new Cesium.Cartesian3(x, y, z);
+                const globalPosition = Cesium.Matrix4.multiplyByPoint(transform, position, new Cesium.Cartesian3());
+                verticalPositions.push(globalPosition);
+            }
+    
+            const entity = viewer.entities.add({
+                polyline: {
+                    positions: verticalPositions,
+                    width: 1.5,
+                    material: Cesium.Color.fromCssColorString(color).withAlpha(0.2),
+                },
+                
+            });
+            entities.push(entity);
+        }
+        
+        return entities;
+    }
+
+    function createMeshDome(longitude, latitude, radius, color) {
+        const cartesianPosition = Cesium.Cartesian3.fromDegrees(longitude, latitude);
+
+        const sphereGeometry = new Cesium.SphereGeometry({
+            vertexFormat: Cesium.VertexFormat.POSITION_AND_NORMAL,
+            radius: radius
         });
 
-        document.addEventListener('mousemove', (e) => {
-            if (isDragging) {
-                editor.style.left = `${e.clientX - offset.x}px`;
-                editor.style.top = `${e.clientY - offset.y}px`;
+        const geometryInstance = new Cesium.GeometryInstance({
+            geometry: sphereGeometry,
+            modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(cartesianPosition),
+            attributes: {
+                color: Cesium.ColorGeometryInstanceAttribute.fromColor(Cesium.Color.fromCssColorString(color))
             }
         });
 
-        document.addEventListener('mouseup', () => {
-            isDragging = false;
-            editor.style.cursor = 'grab';
+        const appearance = new Cesium.PerInstanceColorAppearance({
+            flat: true,
+            translucent: true
         });
-    };
 
+        const dome = viewer.scene.primitives.add(new Cesium.Primitive({
+            geometryInstances: geometryInstance,
+            appearance: appearance,
+            asynchronous: false
+        }));
 
-    function drawDome(longitude, latitude, height, radius, color) {
-        const center = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
+        return dome;
+    }
 
-        if (!center) {
-            console.error("Invalid center value");
-            return;
-        }
-    
+    function createTransparentDome(longitude, latitude, radius, color) {
+        const cartesianPosition = Cesium.Cartesian3.fromDegrees(longitude, latitude);
+
         const sphereGeometry = new Cesium.SphereGeometry({
+            vertexFormat: Cesium.VertexFormat.POSITION_AND_NORMAL,
             radius: radius,
-            stackPartitions: 16,
-            slicePartitions: 32,
+            slicePartitions: 16,
+            stackPartitions: 16
         });
-    
-        if (!sphereGeometry) {
-            console.error("Failed to create geometry");
-            return;
-        }
 
-        const modelMatrix = Cesium.Matrix4.multiplyByTranslation(
-            Cesium.Transforms.eastNorthUpToFixedFrame(center),
-            new Cesium.Cartesian3(0.0, 0.0, radius / 2),
-            new Cesium.Matrix4()  // 새로운 Matrix4 객체 생성
-        );
-
-        if (!modelMatrix) {
-            console.error("Failed to create model matrix");
-            return;
-        }
-    
-        const sphereInstance = new Cesium.GeometryInstance({
+        const geometryInstance = new Cesium.GeometryInstance({
             geometry: sphereGeometry,
-            modelMatrix: modelMatrix,
+            modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(cartesianPosition),
             attributes: {
-                color: Cesium.ColorGeometryInstanceAttribute.fromColor(color)
-            },
+                color: Cesium.ColorGeometryInstanceAttribute.fromColor(Cesium.Color.fromCssColorString(color))
+            }
         });
-    
-        return viewer.scene.primitives.add(new Cesium.Primitive({
-            geometryInstances: sphereInstance,
-            appearance: new Cesium.PerInstanceColorAppearance({
-                closed: true,
-                translucent: true
-            })
+
+        const meshAppearance = new Cesium.MaterialAppearance({
+            material: Cesium.Material.fromType('Color', {
+                color: Cesium.Color.fromCssColorString(color).withAlpha(0.2)
+            }),
+            translucent: true,
+            faceForward: true
+        });
+
+        const dome = viewer.scene.primitives.add(new Cesium.Primitive({
+            geometryInstances: geometryInstance,
+            appearance: meshAppearance,
+            asynchronous: false
         }));
+
+        return dome;
+    }
+/*
+    function removeDome(domeId) {
+        if (domes[domeId]) {
+            const dome = domes[domeId].entities;
+            if (Array.isArray(dome)) {
+                dome.forEach(primitive => {
+                    viewer.entities.remove(primitive);
+                });
+            } else {
+                viewer.scene.primitives.remove(dome);
+            }
+            delete domes[domeId];
+        } else {
+            console.warn(`No dome found with ID '${domeId}'.`);
+        }
     }
 
-    /*
-    // 돔 그리기 함수
-    function drawDome(longitude, latitude, height, radius, color) {
-        const center = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
-
-        if (!center) {
-            console.error("Invalid center value");
-            return;
+    function removeAllDomes() {
+        for (const domeId in domes) {
+            if (domes.hasOwnProperty(domeId)) {
+                removeDome(domeId);
+            }
         }
-
-        const domeGeometry = new Cesium.CylinderGeometry({
-            length: radius,
-            topRadius: radius,
-            bottomRadius: radius,
-            slices: 64,
-            vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
-        });
-
-        if (!domeGeometry) {
-            console.error("Failed to create geometry");
-            return;
-        }
-    
-        const matrix = Cesium.Matrix4.multiplyByTranslation(
-            Cesium.Transforms.eastNorthUpToFixedFrame(center),
-            new Cesium.Cartesian3(0.0, 0.0, radius / 2),
-            new Cesium.Matrix4()  // 추가된 부분: 출력 결과를 받을 새로운 Matrix4 객체를 생성
-        );
-    
-        if (!matrix) {
-            console.error("Failed to create model matrix");
-            return;
-        }
-
-        const domeInstance = new Cesium.GeometryInstance({
-            geometry: domeGeometry,
-            modelMatrix: matrix,
-            attributes: {
-                color: Cesium.ColorGeometryInstanceAttribute.fromColor(color)
-            },
-        });
-
-        return viewer.scene.primitives.add(new Cesium.Primitive({
-            geometryInstances: domeInstance,
-            appearance: new Cesium.PerInstanceColorAppearance({
-                closed: true,
-                translucent: true
-            })
-        }));
+        domes = {};
     }
-    */
-    // 드래그 앤 드롭 이벤트 구현부
+*/
+    function removeDome(domeId) {
+        if (domes[domeId]) {
+            const { entities } = domes[domeId];
+            entities.forEach(entity => {
+                viewer.entities.remove(entity);
+            });
+            delete domes[domeId];
+        } else {
+            console.warn(`No dome found with ID '${domeId}'.`);
+        }
+    }
     
-    
+    function removeAllDomes() {
+        for (const domeId in domes) {
+            removeDome(domeId);
+        }
+        domes = {};
+    }
 
-    return {createEditor, drawDome};
+    function loadDomesFromJson() {
+        const input = document.getElementById('domejsonFileInput');
+        if (input.files.length === 0) {
+            console.warn("No file selected!");
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const domeData = JSON.parse(event.target.result);
+                domeData.forEach(data => {
+                    const { domeId, longitude, latitude, radius, color, renderMode } = data;
+                    if (!(domeId in domes)) {
+                        createDome(domeId, longitude, latitude, radius, color, renderMode || 'wireframe');
+                    } else {
+                        console.warn(`Dome with ID '${domeId}' already exists.`);
+                    }
+                });
+            } catch (error) {
+                console.error("Failed to parse JSON", error);
+            }
+        };
+        reader.readAsText(input.files[0]);
+    }
+
+    function saveDomesToJson() {
+        const domeArray = Object.values(domes).map(d => d.config);
+        const jsonString = JSON.stringify(domeArray, null, 2);
+        
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'domes.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    return { createControlPanel };
 
 })();

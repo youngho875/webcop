@@ -28,6 +28,7 @@ window.circleDrawing = (function() {
                 semiMajorAxis: radius,
                 semiMinorAxis: radius,
                 material: new Cesium.ColorMaterialProperty(Cesium.Color.BLUE.withAlpha(0.5)),
+                outline: true,
                 heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
             }
         });

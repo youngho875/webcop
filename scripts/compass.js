@@ -31,7 +31,16 @@
         document.head.appendChild(style);
     }
 
+    let compassVisible = true;
     
+    window.toggleCompass = function() {
+        const compass = document.getElementById('compass');
+        if (compass) {
+            compass.style.display = compassVisible ? 'none' : 'block';
+            compassVisible = !compassVisible;
+        }
+    }
+
     // 2. 전역 함수로 노출
     window.initCompass = function() {
 
@@ -57,6 +66,8 @@
             compassImg.style.transform = `rotate(${-heading}deg)`;
         });
     };
+
+    window.toggleCompass = toggleCompass;
 /*
 
         const compassElement = document.getElementById('compass');

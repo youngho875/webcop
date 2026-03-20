@@ -1,33 +1,20 @@
 (function() {
+    const viewer = window.CesiumViewer;
+    
     // 스타일을 동적으로 추가
     const style = document.createElement('style');
     style.innerHTML = `
         #menu {
             position: absolute;
-            top: 50px;
-            left: 10px;
+            top: 10px; 
+            left: 10px;   
             background: rgba(255, 255, 255, 0.9);
             padding: 10px;
             width: auto;
-            display: flex; /* Flexbox로 레이아웃 설정 */
+            display: flex;
             gap: 10px;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
             z-index: 1000;
-        }
-        #menu.hidden {
-            display: none; /* 숨기기 위해 display를 none으로 설정 */
-        }
-        #menu-toggle {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            z-index: 1001;
-            background: #FFA500;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            cursor: pointer;
-            border-radius: 4px;
         }
         #menu button {
             padding: 10px 15px;
@@ -96,29 +83,12 @@
     `;
     document.head.appendChild(style);
 
-    const viewer = window.CesiumViewer;
+       
 
     // 메뉴 UI 생성
     const menu = document.createElement('div');
     menu.id = 'menu';
     document.body.appendChild(menu);
-
-    const createToggleButton = (text, onAction, offAction) => {
-        const button = document.createElement('button');
-        button.textContent = text;
-        let isActive = false;
-        button.addEventListener('click', function() {
-            if (isActive) {
-                offAction();
-                button.classList.remove('active');
-            } else {
-                onAction();
-                button.classList.add('active');
-            }
-            isActive = !isActive;
-        });
-        return button;
-    };
 
     const symbolButton = document.createElement('button');
     symbolButton.textContent = '기호선택';
@@ -128,20 +98,6 @@
     homeButton.textContent = 'Home View';
     menu.appendChild(homeButton);
 
-    // const mapButton = document.createElement('button');
-    // mapButton.textContent = 'cadrg_5';
-    // menu.appendChild(mapButton);
-    /*
-    const mapButton = createToggleButton('cadrg_5', mapdraw.cadrg_5Draw, mapdraw.clearDraw);
-    menu.appendChild(mapButton);
-
-    const terrainButton = createToggleButton('terrain', mapdraw.terrainDraw, mapdraw.clearTerrain);
-    menu.appendChild(terrainButton);
-*/
-    // const terrainButton = document.createElement('button');
-    // terrainButton.id = 'menu-toggle';
-    // terrainButton.textContent = 'terrain';
-    // menu.appendChild(terrainButton);
     // start view mewu
     const dropdown = document.createElement('div');
     dropdown.className = 'dropdown';
@@ -174,23 +130,64 @@
     resetButton.textContent = 'Reset Layers';
     menu.appendChild(resetButton);
 
-    // const distanceButton = document.createElement('button');
-    // distanceButton.textContent = '거리';
-    // menu.appendChild(distanceButton);
-
-    // const losButton = document.createElement('button');
-    // losButton.textContent = 'LOS';
-    // menu.appendChild(losButton);
-
-    const distanceButton = createToggleButton('거리', distance.start, distance.stop);
+    const distanceButton = document.createElement('button');
+    distanceButton.textContent = '거리';
     menu.appendChild(distanceButton);
 
-    const losButton = createToggleButton('LOS', los.start, los.stop);
-    menu.appendChild(losButton);
+    const measureButton = document.createElement('button');
+    measureButton.textContent = '면적';
+    menu.appendChild(measureButton);
+
+    const LosButton = document.createElement('button');
+    LosButton.textContent = 'LOS';
+    menu.appendChild(LosButton);
+
+    const compassButton = document.createElement('button');
+    compassButton.textContent = '나침반';
+    menu.appendChild(compassButton);
+
+    const modelButton = document.createElement('button');
+    modelButton.textContent = '3차원 모델';
+    menu.appendChild(modelButton);
 
     const domeButton = document.createElement('button');
-    domeButton.textContent = '돔 그리기기';
+    domeButton.textContent = 'Dome 그리기';
     menu.appendChild(domeButton);
+
+    const radarButton = document.createElement('button');
+    radarButton.textContent = '레이다 빔';
+    menu.appendChild(radarButton);
+
+    const pathButton = document.createElement('button');
+    pathButton.textContent = '탄도탄 경로';
+    menu.appendChild(pathButton);
+
+    // const saveButton = document.createElement('button');
+    // saveButton.textContent = 'Save JSON';
+    // menu.appendChild(saveButton);
+
+    const airpathButton = document.createElement('button');
+    airpathButton.textContent = '항공기 항적';
+    menu.appendChild(airpathButton);
+    
+
+    const particleButton = document.createElement('button');
+    particleButton.textContent = '유도탄 항적';
+    menu.appendChild(particleButton);
+
+    
+    const pullupButton = document.createElement('button');
+    pullupButton.textContent = '풀업 항적';
+    menu.appendChild(pullupButton);    
+
+    const billboardButton = document.createElement('button');
+    billboardButton.textContent = '빌보드';
+    menu.appendChild(billboardButton);    
+
+    const triangleButton = document.createElement('button');
+    triangleButton.textContent = '그물망';
+    menu.appendChild(triangleButton); 
+
 
     // 버튼 이벤트 핸들링
     symbolButton.addEventListener('click', function() {
@@ -198,17 +195,12 @@
     });
 
     homeButton.addEventListener('click', function() {
-        viewer.camera.flyHome(1);
+        //viewer.camera.flyHome(1);
+        viewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(126.9317, 37.5204, 7000),
+            duration: 2
+        });
     });
-
-    // mapButton.addEventListener('click', function() {
-    //     //menu.classList.toggle('hidden');
-    //     mapdraw.cadrg_5Draw();
-    // });
-
-    // terrainButton.addEventListener('click', function() {
-    //     mapdraw.terrainDraw();
-    // });
 
     resetButton.addEventListener('click', function() {
         viewer.imageryLayers.removeAll();
@@ -219,13 +211,66 @@
         distance.start();
     });
 
-    losButton.addEventListener('click', function() {
-        los.start();
+
+    measureButton.addEventListener('click', function() {
+        measure.start();
+    });
+
+    LosButton.addEventListener('click', function() {
+        drawSightViewLine.start();
+    });
+
+    compassButton.addEventListener('click', function() {
+        toggleCompass();
+    });
+
+    modelButton.addEventListener('click', function() {
+        mapDrawing.toggleTilesetVisibility();
     });
 
     domeButton.addEventListener('click', function() {
-        domeDrawing.createEditor();
+        domeDrawing.createControlPanel();
+    
+        //domeDrawing.createDome(longitude, latitude, height, radius, color);
     });
+
+    radarButton.addEventListener('click', function() {
+        radar.createInfoBox();
+    
+        //domeDrawing.createDome(longitude, latitude, height, radius, color);
+    });
+
+    pathButton.addEventListener('click', function() {
+        curve.createInfoBox();
+    
+        //domeDrawing.createDome(longitude, latitude, height, radius, color);
+    });
+
+    // saveButton.addEventListener('click', function() {
+    //     savejson.saveJsonData();
+    // });
+
+    airpathButton.addEventListener('click', function() {
+        airpath.createInfoBox();
+    });
+
+    particleButton.addEventListener('click', function() {
+        particle.createInfoBox();
+        particle.init();
+    });
+
+    pullupButton.addEventListener('click', function() {
+        pullup.createInfoBox();
+        pullup.init();
+    });    
+
+    billboardButton.addEventListener('click', function() {
+        billboard.craeteBillboard();
+    });    
+
+    triangleButton.addEventListener('click', function() {
+        triangle.triangleDraw();
+    });    
 
     const actions = [
         { name: '폴리곤 그리기', activate: window.PolygonDrawing.activate, reset: window.PolygonDrawing.reset },
@@ -277,7 +322,7 @@ const createCheckboxItem = (name, longitude, latitude, groupName) => {
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.name = groupName;
-    checkbox.addEventListener('change', () => {
+    checkbox.addEventListener('+', () => {
         // 체크박스 변경 시 Cesium 카메라 이동
         if (checkbox.checked) {
             viewer.camera.flyTo({
@@ -298,6 +343,18 @@ createCheckboxItem('Paris', 2.3522, 48.8566, 'city');
 
 })();
 
-// function openSymbolPopup() {
-//     window.open("milsymbol.html", "symbolPopup", "width=300,height=400");
-//     }
+
+    /*
+    #menu {
+        position: absolute;
+        top: 50px;
+        left: 10px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 10px;
+        width: auto;
+        display: flex; 
+        gap: 10px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        z-index: 1000;
+    }
+    */
