@@ -1,0 +1,83 @@
+[
+  {
+    "domeId": "01",
+    "longitude": 126.9211,
+    "latitude": 37.5252,
+    "radius": 62000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  },
+  {
+    "domeId": "02",
+    "longitude": 127.5831,
+    "latitude": 38.0636,
+    "radius": 57000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  },
+   {
+    "domeId": "03",
+    "longitude": 127.9758,
+    "latitude": 38.5516,
+    "radius": 52000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  },
+  {
+    "domeId": "04",    
+    "longitude": 127.0211,
+    "latitude": 36.8252,
+    "radius": 100000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  },
+  {
+    "domeId": "05",
+	"longitude": 128.6211,
+    "latitude": 37.6252,
+    "radius": 97000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  },
+    {
+    "domeId": "06",
+	"longitude": 127.2352,
+    "latitude": 35.8880,
+    "radius": 90000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  },
+  {
+    "domeId": "07",
+	"longitude": 128.7983,
+    "latitude": 35.4275,
+    "radius": 90000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  },
+  {
+    "domeId": "08",
+	"longitude": 128.7652,
+    "latitude": 36.5390,
+    "radius": 85000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  },
+  {
+    "domeId": "09",
+	"longitude": 127.7699,
+    "latitude": 35.1176,
+    "radius": 70000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  },
+  {
+    "domeId": "10",
+	"longitude": 126.7258,
+    "latitude": 34.7973,
+    "radius": 100000,
+    "color": "rgba(50, 255, 255, 0.3)",
+    "renderMode": "wireframe"
+  }
+
+]
