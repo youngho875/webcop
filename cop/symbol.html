@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>기호 선택</title>
+  <script src="../node_modules/milsymbol/dist/milsymbol.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+    }
+    .symbolItem {
+      cursor: grab;
+      margin: 10px;
+      text-align: center;
+    }
+    .symbolItem img {
+      width: 50px;
+      height: 50px;
+    }
+  </style>
+</head>
+<body>
+  <h3>기호 선택</h3>
+  <div id="symbolList"></div>
+
+  <script>
+    const symbols = [
+      { name: "친군군", sidc: "SFGPUCI----K---" },
+      { name: "Armor", sidc: "SFAPCTT----K---" },
+      { name: "Artillery", sidc: "SFAPCFR-----A--" }
+    ];
+
+    const list = document.getElementById("symbolList");
+
+    symbols.forEach(item => {
+      const symbol = new ms.Symbol(item.sidc, { size: 50 });
+      const url = symbol.asSVG();
+
+      const div = document.createElement("div");
+      div.className = "symbolItem";
+      div.draggable = true;
+      div.classList.add('symbol');
+      div.innerHTML = url;
+      div.innerHTML += "<div>${item.name}</div>";
+
+      div.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/plain", item.sidc);
+      });
+
+      list.appendChild(div);
+    });
+  </script>
+</body>
+</html>
