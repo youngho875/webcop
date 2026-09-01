@@ -1,0 +1,790 @@
+<?xml version = "1.0" encoding = "euc-kr"?>
+
+<InSIDEMapX3 CacheSize="400" Proj_Data_Path="C:\Map\Datum" DivideValue="0.500000" Priority="High">
+<Providers>
+	<Provider Type = "Vector" Name = "MXS" SourceType = "Local" FileType="MMF">
+		<ConnectionInformation Location = "C:\Map\" FileName = "COP.ixx" DataRoot = "C:\Map\COP\"></ConnectionInformation>
+	</Provider>
+</Providers>
+<Layers>
+	<Layer alias="바다">
+		<Category>수부</Category>
+		<Visible>TRUE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>바다</GeometryStyleName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>100000000</MaxScale>
+		<Source>aba040</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="행정구역">
+		<Category>경계</Category>
+		<Visible>TRUE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>행정구역</GeometryStyleName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>100000000</MaxScale>
+		<Source>afa001</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="밀집지역">
+		<Category>문화</Category>
+		<Visible>FALSE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>밀집지역</GeometryStyleName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>aal020</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="강/하천">
+		<Category>수부</Category>
+		<Visible>FALSE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>강/하천</GeometryStyleName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>lbh140</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="도로">
+		<Category>수송</Category>
+		<Visible>FALSE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>TRUE</UseStyleTable>
+		<StyleTableName>도로st</StyleTableName>
+		<StyleColumnName>map_cd</StyleColumnName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>lap030</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="철도">
+		<Category>수송</Category>
+		<Visible>FALSE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>TRUE</UseStyleTable>
+		<StyleTableName>철도st</StyleTableName>
+		<StyleColumnName>map_cd</StyleColumnName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>70000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>lan010</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="행정경계">
+		<Category>경계</Category>
+		<Visible>FALSE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>TRUE</UseStyleTable>
+		<StyleTableName>행정경계st</StyleTableName>
+		<StyleColumnName>map_cd</StyleColumnName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>lfa000</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="휴전선">
+		<Category>경계</Category>
+		<Visible>TRUE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>휴전선</GeometryStyleName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>100000000</MaxScale>
+		<Source>lfa020</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="정전선">
+		<Category>경계</Category>
+		<Visible>TRUE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>정전선</GeometryStyleName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>100000000</MaxScale>
+		<Source>lfa030</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="권리선">
+		<Category>경계</Category>
+		<Visible>TRUE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>권리선</GeometryStyleName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>100000000</MaxScale>
+		<Source>lfa040</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="분계선">
+		<Category>경계</Category>
+		<Visible>TRUE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>분계선</GeometryStyleName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>100000000</MaxScale>
+		<Source>lfa060</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="행정구역선">
+		<Category>경계</Category>
+		<Visible>TRUE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>행정구역선</GeometryStyleName>
+		<StyleColumnName>map_cd</StyleColumnName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>100000000</MaxScale>
+		<Source>lfa001</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="비행장">
+		<Category>수송</Category>
+		<Visible>FALSE</Visible>
+		<DisplayType>GEOMETRY</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<GeometryStyleName>비행장</GeometryStyleName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>70000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>pgb005</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="수도명/한글">
+		<Category>주기</Category>
+		<Visible>FALSE</Visible>
+		<DisplayType>LABEL</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<LabelStyleName>수도명/한글</LabelStyleName>
+		<LabelColumnName>nm4</LabelColumnName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>sudo001</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="수도명/영문">
+		<Category>주기</Category>
+		<Visible>FALSE</Visible>
+		<DisplayType>LABEL</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<LabelStyleName>수도명/영문</LabelStyleName>
+		<LabelColumnName>nm4</LabelColumnName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>sudo002</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="국가명/한글">
+		<Category>주기</Category>
+		<Visible>TRUE</Visible>
+		<DisplayType>LABEL</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<LabelStyleName>국가명/한글</LabelStyleName>
+		<LabelColumnName>nm4</LabelColumnName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>kukga001</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+	<Layer alias="국가명/영문">
+		<Category>주기</Category>
+		<Visible>FALSE</Visible>
+		<DisplayType>LABEL</DisplayType>
+		<UseStyleTable>FALSE</UseStyleTable>
+		<LabelStyleName>국가명/영문</LabelStyleName>
+		<LabelColumnName>nm4</LabelColumnName>
+		<UseScale>TRUE</UseScale>
+		<MinScale>10000</MinScale>
+		<MaxScale>20000000</MaxScale>
+		<Source>kukga002</Source>
+		<ProviderName>MXS</ProviderName>
+	</Layer>
+</Layers>
+
+	<StyleTable name="행정경계st" type="INTEGER" HashSize="0" Layer="" Column="" FeatureList="line">
+		<Element value="1" point="" line="제1행정경계" polygon="" label=""/>
+		<Element value="2" point="" line="제2행정경계" polygon="" label=""/>
+		<Element value="3" point="" line="제3행정경계" polygon="" label=""/>
+		<Element value="4" point="" line="기타행정경계" polygon="" label=""/>
+		<Element value="5" point="" line="국계" polygon="" label=""/>
+	</StyleTable>
+	<StyleTable name="도로st" type="INTEGER" HashSize="0" Layer="" Column="" FeatureList="line">
+		<Element value="1" point="" line="고속국도" polygon="" label=""/>
+		<Element value="2" point="" line="건설중고속국도" polygon="" label=""/>
+		<Element value="3" point="" line="5등도로" polygon="" label=""/>
+		<Element value="4" point="" line="가로도로" polygon="" label=""/>
+		<Element value="5" point="" line="단차선포장도로" polygon="" label=""/>
+		<Element value="6" point="" line="단차선비포장도로" polygon="" label=""/>
+		<Element value="7" point="" line="복차선포장도로" polygon="" label=""/>
+		<Element value="8" point="" line="복차선비포장도로" polygon="" label=""/>
+	</StyleTable>
+	<StyleTable name="철도st" type="INTEGER" HashSize="0" Layer="" Column="" FeatureList="line">
+		<Element value="1" point="" line="표준궤간단선철도" polygon="" label=""/>
+		<Element value="2" point="" line="표준궤간복선철도" polygon="" label=""/>
+		<Element value="3" point="" line="협궤단선철도" polygon="" label=""/>
+		<Element value="4" point="" line="협궤복선철도" polygon="" label=""/>
+		<Element value="5" point="" line="표준궤간단선전기철도" polygon="" label=""/>
+		<Element value="6" point="" line="표준궤간복선전기철도" polygon="" label=""/>
+		<Element value="7" point="" line="제거된철도" polygon="" label=""/>
+		<Element value="8" point="" line="협궤단선전기철도" polygon="" label=""/>
+		<Element value="9" point="" line="협궤복선전기철도" polygon="" label=""/>
+		<Element value="10" point="" line="비운행표준궤간단선철도" polygon="" label=""/>
+		<Element value="11" point="" line="비운행표준궤간복선철도" polygon="" label=""/>
+		<Element value="12" point="" line="비운행협궤단선철도" polygon="" label=""/>
+		<Element value="13" point="" line="비운행협궤복선철도" polygon="" label=""/>
+		<Element value="14" point="" line="비운행표준궤간단선전기철도" polygon="" label=""/>
+		<Element value="15" point="" line="비운행표준궤간복선전기철도" polygon="" label=""/>
+		<Element value="16" point="" line="비운행협궤단선전기철도" polygon="" label=""/>
+		<Element value="17" point="" line="비운행협궤복선전기철도" polygon="" label=""/>
+	</StyleTable>
+
+	<style name="비행장" type="POINT">
+		<Type>2</Type>
+		<Size>0</Size>
+		<IconName>Airport_100</IconName>
+		<Color>FFFFFF</Color>
+		<xmove>0</xmove>
+		<ymove>0</ymove>
+		<AngleColumn></AngleColumn>
+	</style>
+	<style name="복차선포장도로" type="LINE">
+		<Type>5</Type>
+		<Width>3</Width>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>E44941</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="복차선비포장도로" type="LINE">
+		<Type>6</Type>
+		<Width>3</Width>
+		<Interval>4</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>E44941</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="단차선포장도로" type="LINE">
+		<Type>5</Type>
+		<Width>2</Width>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>E44941</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="단차선비포장도로" type="LINE">
+		<Type>6</Type>
+		<Width>2</Width>
+		<Interval>4</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>E44941</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="5등도로" type="LINE">
+		<Type>0</Type>
+		<Width>2</Width>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="고속국도" type="LINE">
+		<Type>20</Type>
+		<Width>8</Width>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>00B72E</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="가로도로" type="LINE">
+		<Type>5</Type>
+		<Width>2</Width>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>FFFFFF</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="건설중고속국도" type="LINE">
+		<Type>21</Type>
+		<Width>8</Width>
+		<Interval>3</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>00B72E</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="표준궤간복선철도" type="LINE">
+		<Type>13</Type>
+		<Width>2</Width>
+		<Interval>6</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="표준궤간단선철도" type="LINE">
+		<Type>9</Type>
+		<Width>2</Width>
+		<Interval>3</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="협궤단선전기철도" type="LINE">
+		<Type>12</Type>
+		<Width>4</Width>
+		<Interval>5</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="제거된철도" type="LINE">
+		<Type>1</Type>
+		<Width>1</Width>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="협궤복선전기철도" type="LINE">
+		<Type>14</Type>
+		<Width>3</Width>
+		<Interval>5</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="협궤단선철도" type="LINE">
+		<Type>12</Type>
+		<Width>2</Width>
+		<Interval>3</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="표준궤간단선전기철도" type="LINE">
+		<Type>36</Type>
+		<Width>4</Width>
+		<Interval>5</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="표준궤간복선전기철도" type="LINE">
+		<Type>37</Type>
+		<Width>3</Width>
+		<Interval>5</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="협궤복선철도" type="LINE">
+		<Type>14</Type>
+		<Width>2</Width>
+		<Interval>3</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="비운행표준궤간단선전기철도" type="LINE">
+		<Type>36</Type>
+		<Width>4</Width>
+		<Interval>5</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="비운행표준궤간단선철도" type="LINE">
+		<Type>9</Type>
+		<Width>2</Width>
+		<Interval>3</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="비운행표준궤간복선전기철도" type="LINE">
+		<Type>37</Type>
+		<Width>3</Width>
+		<Interval>6</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="비운행표준궤간복선철도" type="LINE">
+		<Type>13</Type>
+		<Width>2</Width>
+		<Interval>3</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="비운행협궤단선전기철도" type="LINE">
+		<Type>12</Type>
+		<Width>4</Width>
+		<Interval>5</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="비운행협궤단선철도" type="LINE">
+		<Type>12</Type>
+		<Width>2</Width>
+		<Interval>3</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="비운행협궤복선전기철도" type="LINE">
+		<Type>14</Type>
+		<Width>3</Width>
+		<Interval>5</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="비운행협궤복선철도" type="LINE">
+		<Type>14</Type>
+		<Width>2</Width>
+		<Interval>3</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="행정구역선" type="LINE">
+		<Type>26</Type>
+		<Width>4</Width>
+		<Interval>8</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>D19589</Color>
+		<ColorEx>000000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="휴전선" type="LINE">
+		<Type>25</Type>
+		<Width>6</Width>
+		<Interval>4</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>BBBCBE</Color>
+		<ColorEx>000000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="분계선" type="LINE">
+		<Type>26</Type>
+		<Width>4</Width>
+		<Interval>8</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>D19589</Color>
+		<ColorEx>000000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="정전선" type="LINE">
+		<Type>26</Type>
+		<Width>4</Width>
+		<Interval>8</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>D19589</Color>
+		<ColorEx>000000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="권리선" type="LINE">
+		<Type>26</Type>
+		<Width>4</Width>
+		<Interval>8</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>D19589</Color>
+		<ColorEx>000000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="강/하천" type="LINE">
+		<Type>0</Type>
+		<Width>1</Width>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>00FFFF</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="밀집지역관통도로" type="LINE">
+		<Type>5</Type>
+		<Width>1</Width>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>905448</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="제1행정경계" type="LINE">
+		<Type>48</Type>
+		<Width>3</Width>
+		<Interval>7</Interval>
+		<IntervalWidth>1</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="제2행정경계" type="LINE">
+		<Type>49</Type>
+		<Width>2</Width>
+		<Interval>7</Interval>
+		<IntervalWidth>1</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="제3행정경계" type="LINE">
+		<Type>50</Type>
+		<Width>2</Width>
+		<Interval>7</Interval>
+		<IntervalWidth>1</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>000000</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="기타행정경계" type="LINE">
+		<Type>0</Type>
+		<Width>0</Width>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>FFFFFF</Color>
+		<ColorEx>FF0000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="국계" type="LINE">
+		<Type>25</Type>
+		<Width>4</Width>
+		<Interval>8</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<Color>D19589</Color>
+		<ColorEx>000000</ColorEx>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="바다" type="POLYGON">
+		<LineType>0</LineType>
+		<LineWidth>1</LineWidth>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<LineColor>4F4FFF</LineColor>
+		<LineColorEx>FF0000</LineColorEx>
+		<FillType>0</FillType>
+		<FillColor>4F4FFF</FillColor>
+		<HatchColor></HatchColor>
+		<PatternName></PatternName>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="행정구역" type="POLYGON">
+		<LineType>0</LineType>
+		<LineWidth>1</LineWidth>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<LineColor>C08181</LineColor>
+		<LineColorEx>FF0000</LineColorEx>
+		<FillType>0</FillType>
+		<FillColor>C08181</FillColor>
+		<HatchColor>00FF00</HatchColor>
+		<PatternName></PatternName>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="밀집지역" type="POLYGON">
+		<LineType>0</LineType>
+		<LineWidth>1</LineWidth>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<LineColor>000000</LineColor>
+		<LineColorEx>FF0000</LineColorEx>
+		<FillType>0</FillType>
+		<FillColor>C0C0C0</FillColor>
+		<HatchColor>00FF00</HatchColor>
+		<PatternName></PatternName>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="내륙수부" type="POLYGON">
+		<LineType>0</LineType>
+		<LineWidth>0</LineWidth>
+		<Interval>2</Interval>
+		<IntervalWidth>2</IntervalWidth>
+		<IntervalHeight>2</IntervalHeight>
+		<LineColor>4F4FFF</LineColor>
+		<LineColorEx>FF0000</LineColorEx>
+		<FillType>0</FillType>
+		<FillColor>00FFFF</FillColor>
+		<HatchColor>00FF00</HatchColor>
+		<PatternName>am_sea_100</PatternName>
+		<IconName></IconName>
+		<IconNameEx></IconNameEx>
+	</style>
+	<style name="국가명/한글" type="LABEL">
+		<Font>Arial</Font>
+		<Type>2</Type>
+		<Size>12</Size>
+		<Color>000000</Color>
+		<BackColor>FFFFFF</BackColor>
+		<Align>1</Align>
+		<Precision>0</Precision>
+		<Anotation></Anotation>
+		<xmove>0</xmove>
+		<ymove>0</ymove>
+		<Unit>0</Unit>
+	</style>
+	<style name="수도명/한글" type="LABEL">
+		<Font>Arial</Font>
+		<Type>0</Type>
+		<Size>10</Size>
+		<Color>000000</Color>
+		<BackColor>FFFFFF</BackColor>
+		<Align>6</Align>
+		<Precision>0</Precision>
+		<Anotation></Anotation>
+		<xmove>0</xmove>
+		<ymove>0</ymove>
+		<Unit>0</Unit>
+	</style>
+	<style name="수도명/영문" type="LABEL">
+		<Font>Arial</Font>
+		<Type>0</Type>
+		<Size>10</Size>
+		<Color>0000FF</Color>
+		<BackColor>FFFFFF</BackColor>
+		<Align>1</Align>
+		<Precision>0</Precision>
+		<Anotation></Anotation>
+		<xmove>0</xmove>
+		<ymove>0</ymove>
+		<Unit>0</Unit>
+	</style>
+	<style name="국가명/영문" type="LABEL">
+		<Font>Arial</Font>
+		<Type>2</Type>
+		<Size>12</Size>
+		<Color>0000FF</Color>
+		<BackColor>FFFFFF</BackColor>
+		<Align>1</Align>
+		<Precision>0</Precision>
+		<Anotation></Anotation>
+		<xmove>0</xmove>
+		<ymove>0</ymove>
+		<Unit>0</Unit>
+	</style>
+		<resource path = "C:\COP\Symbol"/>
+</InSIDEMapX3>
