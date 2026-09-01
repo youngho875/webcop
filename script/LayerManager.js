@@ -118,6 +118,59 @@ window.LayerManager = (function () {
     return property?.getValue ? property.getValue(time) : property;
   }
 
+  function groundPosition(position, viewer) {
+    const cartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(position);
+    return cartographic
+      ? Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, 0)
+      : position;
+  }
+
+  function createMilitary2DLayer(layer, viewer) {
+    if (layer.collection2D) return;
+    const time = viewer.clock.currentTime;
+    const entityBillboard = layer.entity.billboard;
+    const position = propertyValue(layer.entity.position, time);
+    const image = propertyValue(entityBillboard.image, time);
+    if (!Cesium.defined(position) || !image) return;
+
+    const collection2D = viewer.scene.primitives.add(new Cesium.BillboardCollection({ scene: viewer.scene }));
+    const billboard2D = collection2D.add({
+      id: layer.entity,
+      position: groundPosition(position, viewer),
+      image,
+      width: propertyValue(entityBillboard.width, time),
+      height: propertyValue(entityBillboard.height, time),
+      scale: Number(propertyValue(entityBillboard.scale, time)) || 1,
+      rotation: Number(propertyValue(entityBillboard.rotation, time)) || 0,
+      horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+      verticalOrigin: Cesium.VerticalOrigin.CENTER,
+      pixelOffset: propertyValue(entityBillboard.pixelOffset, time) || Cesium.Cartesian2.ZERO,
+      heightReference: Cesium.HeightReference.NONE,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY
+    });
+    layer.collection2D = collection2D;
+    layer.billboard2D = billboard2D;
+  }
+
+  function removeMilitary2DLayer(layer, viewer) {
+    if (!layer.collection2D) return;
+    viewer.scene.primitives.remove(layer.collection2D);
+    layer.collection2D = null;
+    layer.billboard2D = null;
+  }
+
+  function applyMilitaryLayerMode(layer, viewer) {
+    const is2D = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
+    const entityVisible = layer.entity.show !== false;
+
+    // 2D 전용 컬렉션은 전환 완료 후 현재 모드에서 새로 생성한다.
+    if (is2D) createMilitary2DLayer(layer, viewer);
+    else removeMilitary2DLayer(layer, viewer);
+    layer.collection.show = entityVisible && !is2D;
+    if (layer.collection2D) layer.collection2D.show = entityVisible && is2D;
+    layer.entity.billboard.show = false;
+  }
+
   function installMilitaryRenderSync(viewer) {
     if (militaryRenderSyncInstalled) return;
     militaryRenderSyncInstalled = true;
@@ -127,17 +180,30 @@ window.LayerManager = (function () {
         const entity = layer.entity;
         if (!viewer.entities.contains(entity)) {
           viewer.scene.primitives.remove(layer.collection);
+          removeMilitary2DLayer(layer, viewer);
           militaryRenderLayers.delete(id);
           return;
         }
         const position = propertyValue(entity.position, time);
         if (Cesium.defined(position)) layer.billboard.position = position;
-        layer.collection.show = entity.show !== false;
+        if (Cesium.defined(position) && layer.billboard2D) {
+          layer.billboard2D.position = groundPosition(position, viewer);
+        }
+        const is2D = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
+        layer.collection.show = entity.show !== false && !is2D;
+        if (layer.collection2D) layer.collection2D.show = entity.show !== false && is2D;
         const scale = Number(layer.billboard.scale) || 1;
         const width = Number(layer.billboard.width) || Number(layer.billboard._imageWidth) || 0;
         const height = Number(layer.billboard.height) || Number(layer.billboard._imageHeight) || 0;
         if (width > 0 && height > 0) entity.customData.billboardScreenSize = { width: width * scale, height: height * scale };
       });
+    });
+
+    viewer.scene.morphComplete.addEventListener(() => {
+      militaryRenderLayers.forEach(layer => applyMilitaryLayerMode(layer, viewer));
+      // Entity BillboardVisualizer가 변경된 show/heightReference를 반영할 프레임을 보장한다.
+      viewer.scene.requestRender();
+      requestAnimationFrame(() => viewer.scene.requestRender());
     });
   }
 
@@ -167,9 +233,11 @@ window.LayerManager = (function () {
     });
     // 기본 Entity BillboardVisualizer의 부호는 숨기고 독립 컬렉션에서 렌더링한다.
     entity.billboard.show = false;
-    const layer = { entity, collection, billboard };
+    const layer = { entity, collection, billboard, collection2D: null, billboard2D: null };
     militaryRenderLayers.set(entity.id, layer);
     installMilitaryRenderSync(viewer);
+    applyMilitaryLayerMode(layer, viewer);
+    viewer.scene.requestRender();
     return layer;
   }
 
@@ -184,6 +252,7 @@ window.LayerManager = (function () {
       entity.billboard.image = imageUrl;
       const renderLayer = militaryRenderLayers.get(entity.id);
       if (renderLayer?.billboard) renderLayer.billboard.image = imageUrl;
+      if (renderLayer?.billboard2D) renderLayer.billboard2D.image = imageUrl;
       viewer.scene.requestRender();
       return true;
     } catch (error) {
