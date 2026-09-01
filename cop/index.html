@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- cop/index.html의 상대 경로를 webcop 프로젝트 루트 기준으로 해석 -->
+  <base href="../" />
+  <!-- Use correct character set. -->
+  <meta charset="utf-8" />
+  <!-- Tell IE to use the latest, best version. -->
+  <meta http-equiv="X-UA-Compatible" content="IE=edge, chrome=1" />
+  <!-- Make the application on mobile take up the full browser screen and disable user scaling. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>webcop</title>
+  
+  <link rel="stylesheet" href="node_modules/cesium/Build/Cesium/Widgets/widgets.css">
+
+  <!-- 1. jQuery (필수, jstree보다 무조건 먼저 와야 합니다) -->
+  <link rel="stylesheet" href="css/style.min.css" />
+  <script src="js/jquery.min.js"></script> 
+
+  <link rel="stylesheet" href="css/jstree/style.min.css" />
+  <script type="text/javascript" src="js/jstree.min.js"></script>
+  <script src="node_modules/cesium/Build/Cesium/Cesium.js"></script>
+  <script src="node_modules/milsymbol/dist/milsymbol.js"></script>
+  <script src="node_modules/proj4/dist/proj4.js"></script>
+  <script src="node_modules/mgrs/dist/mgrs.js"></script>
+
+
+  
+
+  <style>
+    html,
+    body,
+    #cesiumContainer {
+      width: 100%;
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      display: block;
+    }
+  </style>
+
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+
+        <script src="script/initialize.js"></script>
+
+        <script src="script/mousePosition.js"></script>
+        
+        <script src="script/polygonDrawing.js?v=2"></script>
+         <script src="script/polyLineDrawing.js"></script>
+        <script src="script/circleDrawing.js?v=14"></script>
+        <script src="script/lineDrawing.js"></script>
+        <script src="script/distance.js"></script>
+        <script src="script/measure.js"></script>
+        <!-- <script src="script/symbolDraw.js"></script> -->
+        <script src="script/lineofsight.js"></script>
+        <script src="script/mapDraw.js"></script>
+        <script src="script/compass.js"></script>
+        <script src="script/mapScale.js"></script>
+        <script src="script/domeDraw.js"></script>
+        <script src="script/airspace.js?v=3"></script>
+        <script src="script/radar.js"></script>
+        <script src="script/billboard.js"></script>
+        <!-- <script src="scripts/missile.js"></script> 
+        <script src="scripts/jsonSave.js"></script> -->
+        <script src="script/pullup.js"></script>
+        <script src="script/angleLos.js"></script>
+        <script src="script/curve.js"></script>
+         <!-- <script src="scripts/animation.js"></script> -->
+        <!-- <script src="scripts/colsample.js"></script> -->
+        <!-- <script src="scripts/gltfLoad.js"></script> -->
+        
+
+        <script src="script/glbLoad.js"></script>
+        <!-- <script src="scripts/mdlLine.js"></script> -->
+        <script src="script/particle.js"></script>
+        <script src="script/moveLocation.js"></script>
+        <script src="script/triangle.js"></script> 
+        
+        <script src="script/unifiedControlPanel.js"></script>
+        <script src="node_modules/vue/dist/vue.min.js"></script>
+        <script src="script/LayerManager.js"></script>
+        <script src="script/gps.js"></script>
+        <script src="script/convertCoordinates.js"></script>
+        <script src="script/coordinateDialog.js"></script>
+        <script src="script/setting.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+        <script src="script/terrainProfile.js"></script>
+        <script src="script/textDrawing.js"></script>
+        <script src="script/areaStylePanel.js"></script>
+        <script src="script/shapeDrawingCore.js"></script>
+        <script src="script/rectangleDrawing.js"></script>
+        <script src="script/pentagonDrawing.js"></script>
+        <script src="script/hexagonDrawing.js"></script>
+        <script src="script/starDrawing.js"></script>
+        <script src="script/diamondDrawing.js"></script>
+        <script src="script/roundedRectangleDrawing.js"></script>
+        <script src="script/arcDrawing.js"></script>
+        <script src="script/triangleDrawing.js"></script>
+        <script src="script/parallelogramDrawing.js"></script>
+        <script src="script/trapezoidDrawing.js"></script>
+        <script src="script/coneDrawing.js"></script>
+        <script src="script/menu.js"></script>
+        <script src="script/drawingRotationManager.js"></script>
+        <script src="script/drawingGroupManager.js"></script>
+        <script src="script/drawingClipboard.js"></script>
+        <!-- <script src="scripts/moveMenu.js"></script> -->
+       <script src="script/dialogCollisionManager.js"></script>
+       
+        <script>initCompass();</script>
+        <script>createScaleBar();</script>
+
+        <!-- <script>mapDrawing.wmssatilite();</script> -->
+        <script>mapDrawing.ModelDraw();</script>
+         <!-- <script>initCoordinateDisplay(viewer);</script>  -->
+        <script>
+          const viewer = window.CesiumViewer;
+          
+          LayerManager.init({
+            title: '지도레이어관리',
+
+            // /data 폴더의 육도/공도/해도 XML 14개를 모두 로딩
+            loadDataFolder: true,
+            dataPath: '/data',
+            xmlEncoding: 'euc-kr',
+
+            onLayerChange: function (layer, visible) {
+              console.log(
+                '레이어 변경:',
+                layer.source,
+                visible
+              );
+
+              // Cesium 또는 MapX 레이어 표시/숨김 처리
+              // setLayerVisible(layer.source, visible);
+            },
+
+            onXmlLoadError: function (error) {
+              console.error(
+                'XML 로딩 오류:',
+                error
+              );
+            }
+          });
+
+          LayerManager.open();
+/*
+           // 드래그된 기호를 놓을 수 있게 설정
+          viewer.container.addEventListener("dragover", (e) => e.preventDefault());
+
+          viewer.container.addEventListener("drop", (e) => {
+          e.preventDefault();
+
+          const sidc = e.dataTransfer.getData("text/plain");
+          if (!sidc) return;
+
+          const rect = viewer.container.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          const windowPosition = new Cesium.Cartesian2(x, y);
+          const cartesian = viewer.scene.pickPosition(windowPosition);
+
+          if (cartesian) {
+            const symbol = new ms.Symbol(sidc, { size: 50 });
+
+            viewer.entities.add({
+            position: cartesian,
+            billboard: {
+                image: symbol.asCanvas(),
+                width: 50,
+                height: 50,
+                verticalOrigin: Cesium.VerticalOrigin.BOTTOM
+            }
+            });
+          }
+          });
+
+          function openSymbolPopup() {
+          window.open("symbol", "symbolPopup", "width=300,height=400");
+          }
+*/  
+/*          
+          function openSymbolPopup() {
+            // window.open("symbol", "symbolPopup", "width=300,height=400");
+            var sym = document.getElementById("Sym")
+            if(sym.style.display == "block")
+            {
+              sym.style.display = "none";
+            }
+            else
+            {
+              sym.style.display = "block";
+            }
+          }
+
+          const symbols = [
+              { name: "친군군", sidc: "SFZ*-----------" },
+            ];
+
+            const list = document.getElementById("symbolList");
+
+
+            symbols.forEach(item => {
+              const symbol = new ms.Symbol(item.sidc, { size: 50 });
+              const url = symbol.asSVG();
+
+              const div = document.createElement("div");
+              div.className = "symbolItem";
+              div.draggable = true;
+              div.classList.add('symbol');
+              div.innerHTML = url;
+              // div.innerHTML += "<div>${item.name}</div>";
+
+              div.addEventListener("dragstart", (e) => {
+                e.dataTransfer.setData("text/plain", item.sidc);
+              });
+
+              list.appendChild(div);
+            });
+
+
+
+            $('#layerTree').jstree({
+
+                "plugins" : [ "wholerow" ],
+
+                'core' : { 'data' : {
+                  "url": function (node) {
+                        return "data1/alldata.json"; 
+                    }
+                  } 
+                },
+                "check_callback": true, 
+
+            });
+
+            $('#layerTree').bind('select_node.jstree', function(event, data) {
+                // 노드를 선택했을 때 실행될 코드 작성
+                var selectedNodeId = data.instance.get_node(data.selected).id;
+                var selectedNode = data.instance.get_node(data.selected).data;
+
+                console.log('선택된 노드 ID:', selectedNodeId);
+                console.log('선택된 노드 데이터:', selectedNode);
+                const indc = document.getElementById("sympo2").value;
+
+                var itemCode = "S" + indc.toString() + selectedNode.toString().substr(2,13);
+
+                const list = document.getElementById("symbolList");
+                if(list.children.length > 0)
+                {
+                  list.children[0].remove();
+                }
+
+                const symbol = new ms.Symbol(itemCode, { size: 50 });
+                const url = symbol.asSVG();
+
+                const div = document.createElement("div");
+                div.className = "symbolItem";
+                div.draggable = true;
+                div.classList.add('symbol');
+                div.innerHTML = url;
+                // div.innerHTML += "<div>${item.name}</div>";
+
+                div.addEventListener("dragstart", (e) => {
+                  e.dataTransfer.setData("text/plain", itemCode);
+                });
+
+                list.appendChild(div)
+
+            });
+*/
+        </script>        
+</body>
+</html>
