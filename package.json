@@ -1,0 +1,33 @@
+{
+  "name": "webcop",
+  "version": "1.0.0",
+  "description": "web",
+  "homepage": "https://github.com/youngho875/webcop#readme",
+  "bugs": {
+    "url": "https://github.com/youngho875/webcop/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/youngho875/webcop.git"
+  },
+  "license": "ISC",
+  "author": "youngho",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "nodemon server.js"
+  },
+  "dependencies": {
+    "cesium": "^1.144.0",
+    "express": "^5.2.1",
+    "jstree": "^3.3.17",
+    "mgrs": "^2.1.0",
+    "milsymbol": "^3.0.2",
+    "nodemon": "^3.1.14",
+    "npm": "^12.0.1",
+    "pg": "^8.22.0",
+    "proj4": "^2.15.0",
+    "vue": "^2.7.16",
+    "vue.js": "^0.3.2"
+  }
+}
