@@ -472,324 +472,7 @@
         }
     });
 
-    createIconButton('🎨 군대부호', 'military-tech', () => {
-        if (window.militarySymbolDialog && typeof window.militarySymbolDialog.toggle === 'function') {
-            window.militarySymbolDialog.toggle();
-        } else if (window.unifiedControlPanel && typeof window.unifiedControlPanel.toggleMilitary === 'function') {
-            window.unifiedControlPanel.toggleMilitary();
-        } else if (typeof window.openSymbolPopup === 'function') {
-            window.openSymbolPopup();
-        } else {
-            console.warn("군대부호 다이얼로그 스크립트가 로드되지 않았습니다.");
-        }
-    });
-    
-    // 단독 실행형 아이콘 버튼 생성 함수
-    function createIconButton(tooltipText, iconName, clickCallback, customClass = '') {
-        const btn = document.createElement('button');
-        btn.className = `icon-btn ${customClass}`;
-        btn.setAttribute('data-tooltip', tooltipText);
-
-        const img = document.createElement('img');
-        img.src = `img/${iconName}.png`;
-        btn.appendChild(img);
-
-        btn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            clickCallback(e);
-        });
-
-        menu.appendChild(btn);
-        return btn;
-    }
-
-    // 투명도 그리기 객체 생성 기록 기반 Undo / Redo
-    const undoStack = [];
-    const redoStack = [];
-    const historyRecordedEntities = new WeakSet();
-    let replayingHistory = false;
-
-    function historyEntities(entity) {
-        return [entity, ...(entity?.customData?.subEntities || [])].filter(Boolean);
-    }
-
-    function refreshHistoryButtons() {
-        if (!undoButton || !redoButton) return;
-        undoButton.disabled = undoStack.length === 0;
-        redoButton.disabled = redoStack.length === 0;
-        undoButton.style.opacity = undoButton.disabled ? '.35' : '1';
-        redoButton.style.opacity = redoButton.disabled ? '.35' : '1';
-    }
-
-    function undoDrawing() {
-        const command = undoStack.pop();
-        if (!command) return;
-        replayingHistory = true;
-        if (viewer.selectedEntity === command.entity) viewer.selectedEntity = undefined;
-        command.entities.forEach(entity => viewer.entities.remove(entity));
-        replayingHistory = false;
-        redoStack.push(command);
-        refreshHistoryButtons();
-        viewer.scene.requestRender();
-    }
-
-    function redoDrawing() {
-        const command = redoStack.pop();
-        if (!command) return;
-        replayingHistory = true;
-        command.entities.forEach(entity => { if (!viewer.entities.contains(entity)) viewer.entities.add(entity); });
-        document.dispatchEvent(new CustomEvent('drawing-entity-added', { detail: { entity: command.entity } }));
-        replayingHistory = false;
-        undoStack.push(command);
-        refreshHistoryButtons();
-        viewer.scene.requestRender();
-    }
-
-    function clearDrawingHistory() {
-        undoStack.length = 0;
-        redoStack.length = 0;
-        refreshHistoryButtons();
-    }
-
-    document.addEventListener('drawing-entity-added', event => {
-        const entity = event.detail?.entity;
-        if (replayingHistory || !entity?.customData?.drawingType || entity.customData.isDrawingGroup || historyRecordedEntities.has(entity)) return;
-        historyRecordedEntities.add(entity);
-        undoStack.push({ entity, entities: historyEntities(entity) });
-        redoStack.length = 0;
-        refreshHistoryButtons();
-    });
-
-    function createHistoryButton(imagePath, tooltip, action) {
-        const button = document.createElement('button');
-        button.className = 'icon-btn';
-        button.type = 'button';
-        button.setAttribute('data-tooltip', tooltip);
-        const image = document.createElement('img');
-        image.src = imagePath;
-        image.alt = tooltip;
-        button.appendChild(image);
-        button.addEventListener('click', event => { event.stopPropagation(); action(); });
-        menu.appendChild(button);
-        return button;
-    }
-
-    const undoButton = createHistoryButton('/img/Left.png', '실행 취소 (Ctrl+Z)', undoDrawing);
-    const redoButton = createHistoryButton('/img/Right.png', '다시 실행 (Ctrl+R)', redoDrawing);
-    homeButton.after(undoButton, redoButton);
-    refreshHistoryButtons();
-
-    document.addEventListener('keydown', event => {
-        if (!event.ctrlKey || event.altKey) return;
-        if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-        const key = event.key.toLowerCase();
-        if (key === 'z') {
-            event.preventDefault();
-            undoDrawing();
-        } else if (key === 'r') {
-            event.preventDefault();
-            redoDrawing();
-        }
-    });
-
-    // 💡 헬퍼 2: 마우스 지연 반응 타이머 기반 드롭다운 생성 함수
-    function createDropdownIconButton(tooltipText, iconName) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'dropdown-wrapper';
-
-        const triggerBtn = document.createElement('button');
-        triggerBtn.className = 'drop-trigger';
-        triggerBtn.setAttribute('title', tooltipText); 
-
-        const img = document.createElement('img');
-        //img.src = `https://api.iconify.design/material-symbols:${iconName}-rounded.svg`;
-        img.src = `img/${iconName}.png`;
-        triggerBtn.appendChild(img);
-        wrapper.appendChild(triggerBtn);
-
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'dropdown-content';
-        wrapper.appendChild(contentDiv);
-
-        let closeTimer = null;
-
-        const showMenu = () => {
-            if (closeTimer) {
-                clearTimeout(closeTimer);
-                closeTimer = null;
-            }
-            contentDiv.style.display = 'block';
-        };
-
-        const hideMenuDeferred = () => {
-            if (!closeTimer) {
-                closeTimer = setTimeout(() => {
-                    contentDiv.style.display = 'none';
-                }, 200); 
-            }
-        };
-
-        wrapper.addEventListener('mouseenter', showMenu);
-        wrapper.addEventListener('mouseleave', hideMenuDeferred);
-        contentDiv.addEventListener('mouseenter', showMenu);
-        contentDiv.addEventListener('mouseleave', hideMenuDeferred);
-
-        menu.appendChild(wrapper);
-        return contentDiv; 
-    }
-
-
-    // ==========================================
-    // ⚙️ 버튼 및 드롭다운 아이콘 셋 정의
-    // ==========================================
-
-    // createIconButton('🖼️ 빌보드 핀 배치', 'pin-drop', () => {
-    //     if (window.billboard) {
-    //         const dialog = document.getElementById('billboard-dialog');
-            
-    //         // 1. 다이얼로그가 숨겨져 있다면 먼저 화면에 표시합니다.
-    //         if (dialog && getComputedStyle(dialog).display === 'none') {
-    //             window.billboard.showUI();
-    //         }
-            
-    //         // 2. UI에 입력된 위경도/이미지 설정값으로 빌보드를 생성(또는 토글)합니다.
-    //         if (typeof window.billboard.createBillboardFromUI === 'function') {
-    //             window.billboard.createBillboardFromUI();
-    //         }
-    //     } else {
-    //         console.warn("billboard 모듈이 로드되지 않았습니다.");
-    //     }
-    // });
-
-
-    // 3. 👁 보기 (스케일바 / 상태바 표시 전환)
-    const viewDropContent = createDropdownIconButton('👁 보기', 'View-In-Ar');
-
-    function createViewAction(labelText, action) {
-        const link = document.createElement('a');
-        link.href = '#';
-        link.textContent = labelText;
-        link.addEventListener('click', event => {
-            event.preventDefault();
-            event.stopPropagation();
-            action();
-        });
-        viewDropContent.appendChild(link);
-        return link;
-    }
-
-    // 보기 메뉴의 첫 항목
-    createViewAction('빌보드 배치', () => {
-        const dialog = document.getElementById('billboard-dialog');
-        if (dialog) {
-            const isHidden = getComputedStyle(dialog).display === 'none';
-            dialog.style.display = isHidden ? 'block' : 'none';
-        } else if (window.billboard && typeof window.billboard.createBillboardFromUI === 'function') {
-            window.billboard.createBillboardFromUI();
-        }
-    });
-
-    function createViewCheckbox(labelText, checked, onChange) {
-        const label = document.createElement('label');
-        const checkbox = document.createElement('input');
-        const text = document.createElement('span');
-        checkbox.type = 'checkbox';
-        checkbox.checked = checked;
-        text.textContent = labelText;
-        label.append(checkbox, text);
-        viewDropContent.appendChild(label);
-        checkbox.addEventListener('change', () => onChange(checkbox.checked));
-        return checkbox;
-    }
-
-    const compassCheckbox = createViewCheckbox('나침반', true, checked => {
-        const compass = document.getElementById('compass');
-        const visible = compass ? getComputedStyle(compass).display !== 'none' : !checked;
-        if (visible !== checked && typeof toggleCompass === 'function') toggleCompass();
-    });
-    const syncCompassCheckbox = () => {
-        const compass = document.getElementById('compass');
-        if (compass) compassCheckbox.checked = getComputedStyle(compass).display !== 'none';
-    };
-    window.addEventListener('load', syncCompassCheckbox, { once: true });
-    setTimeout(syncCompassCheckbox, 0);
-
-    // mapDraw.ModelDraw()의 초기값이 숨김이므로 체크 해제 상태로 시작한다.
-    createViewCheckbox('3D 모델 ON/OFF', false, () => {
-        window.mapDrawing?.toggleTilesetVisibility?.();
-    });
-
-    function createVisibilityToggle(labelText, controlName, changeEventName) {
-        const label = document.createElement('label');
-        const checkbox = document.createElement('input');
-        const text = document.createElement('span');
-        checkbox.type = 'checkbox';
-        checkbox.checked = true;
-        text.textContent = labelText;
-        label.append(checkbox, text);
-        viewDropContent.appendChild(label);
-
-        const sync = () => {
-            const control = window[controlName];
-            checkbox.checked = control ? control.isVisible() : false;
-            checkbox.disabled = !control;
-        };
-        checkbox.addEventListener('change', () => {
-            window[controlName]?.setVisible(checkbox.checked);
-        });
-        document.addEventListener(changeEventName, sync);
-        window.addEventListener('load', sync, { once: true });
-        setTimeout(sync, 0);
-        return checkbox;
-    }
-
-    createVisibilityToggle('스케일바', 'ScaleBarControl', 'scalebar-visibility-changed');
-    createVisibilityToggle('Status Bar', 'StatusBarControl', 'statusbar-visibility-changed');
-
-    // 2차원 지도 체크 시 2D로, 체크 해제 시 기본 3D 보기로 전환합니다.
-    const map2DLabel = document.createElement('label');
-    const map2DCheckbox = document.createElement('input');
-    const map2DText = document.createElement('span');
-    map2DCheckbox.type = 'checkbox';
-    map2DCheckbox.checked = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
-    map2DText.textContent = '2차원 지도';
-    map2DLabel.append(map2DCheckbox, map2DText);
-    viewDropContent.appendChild(map2DLabel);
-
-    map2DCheckbox.addEventListener('change', () => {
-        if (map2DCheckbox.checked) {
-            viewer.scene.morphTo2D(1.0);
-        } else {
-            viewer.scene.morphTo3D(1.0);
-        }
-    });
-
-    // 다른 코드에서 보기 모드를 변경해도 메뉴 체크 상태를 실제 지도와 맞춥니다.
-    viewer.scene.morphComplete.addEventListener(() => {
-        const is2D = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
-        map2DCheckbox.checked = is2D;
-
-        if (is2D) {
-            // 3D 홈 버튼과 동일한 중심 좌표 및 확대 수준을 사용합니다.
-            viewer.camera.setView({
-                destination: HOME_VIEW_DESTINATION
-            });
-        } else if (viewer.scene.mode === Cesium.SceneMode.SCENE3D) {
-            // 3D 복귀 시에도 홈 버튼과 동일한 위치와 수직 하향 시점을 적용합니다.
-            viewer.camera.setView({
-                destination: HOME_VIEW_DESTINATION,
-                orientation: {
-                    heading: Cesium.Math.toRadians(0.0),
-                    pitch: Cesium.Math.toRadians(-90.0),
-                    roll: 0.0
-                }
-            });
-        }
-
-        viewer.scene.requestRender();
-    });
-
-    // 4. ⭐ 즐겨찾기 (드롭다운 아이콘)
+// ⭐ 즐겨찾기 (드롭다운 아이콘)
     const favDropContent = createDropdownIconButton('⭐ 즐겨찾기', 'star');
 
     let favoriteManagerPanel = null;
@@ -972,90 +655,20 @@
             window.moveLocation.showMoveInfo();
         }
     });
-    favDropContent.appendChild(moveLink);
+    favDropContent.appendChild(moveLink);    
 
-
-    // 4. 📐 측정 도구 (드롭다운 아이콘)
-    const measureDropContent = createDropdownIconButton('📐 측정 기능 모음', 'straighten');
-    const measureActions = [
-        { name: '📏 거리 측정', action: () => { if(window.distance) distance.start(); } },
-        { name: '📐 면적 측정', action: () => { if(window.measure) measure.start(); } },
-        { name: '👁️‍🗨️ 가시선(LOS) 작도', action: () => { if(window.drawSightViewLine) drawSightViewLine.start(); } },
-        { name: '📊 차폐/LOS 분석', action: () => { 
-            if (window.angleLos && typeof window.angleLos.showMoveInfo === 'function') window.angleLos.showMoveInfo();
-        }}
-    ];
-    measureActions.forEach(item => {
-        const link = document.createElement('a');
-        link.textContent = item.name;
-        link.href = '#';
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            item.action();
-        });
-        measureDropContent.appendChild(link);
+    createIconButton('🎨 군대부호', 'military-tech', () => {
+        if (window.militarySymbolDialog && typeof window.militarySymbolDialog.toggle === 'function') {
+            window.militarySymbolDialog.toggle();
+        } else if (window.unifiedControlPanel && typeof window.unifiedControlPanel.toggleMilitary === 'function') {
+            window.unifiedControlPanel.toggleMilitary();
+        } else if (typeof window.openSymbolPopup === 'function') {
+            window.openSymbolPopup();
+        } else {
+            console.warn("군대부호 다이얼로그 스크립트가 로드되지 않았습니다.");
+        }
     });
-
-
-    // 5. 🚀 대탄도탄 작전 (드롭다운 아이콘)
-    const opDropContent = createDropdownIconButton('🚀 대탄도탄 작전 모음', 'rocket-launch');
-    const opActions = [
-        { name: '🗺️ 공역생성', action: () => {
-            if (window.airspace && typeof window.airspace.togglePanel === 'function') {
-                window.airspace.togglePanel();
-            } else {
-                console.error('airspace.js가 로드되지 않았습니다.');
-                alert('공역생성 모듈을 불러오지 못했습니다.');
-            }
-        }},
-        { name: '🌐 Dome 그리기', action: () => {
-            if (window.domeDrawing && typeof window.domeDrawing.createControlPanel === 'function') {
-                const existBox = document.getElementById('controlPanel');
-                !existBox ? window.domeDrawing.createControlPanel() : window.domeDrawing.toggleInfoBox();
-            }
-        }},
-        { name: '📡 레이다 빔', action: () => {
-            if (window.radar && typeof window.radar.createInfoBox === 'function') {
-                const existBox = document.getElementById('radarInfoBox');
-                !existBox ? window.radar.createInfoBox() : window.radar.toggleInfoBox();
-            }
-        }},
-        { name: '🚀 탄도탄 경로', action: () => {
-            if (window.curve && typeof window.curve.createInfoBox === 'function') {
-                const existBox = document.getElementById('missileinfoBox');
-                !existBox ? window.curve.createInfoBox() : window.curve.toggleInfoBox();
-            }
-        }},
-        { name: '✈️ 항공기 항적', action: () => {
-            if (window.airpath && typeof window.airpath.createInfoBox === 'function') {
-                const existBox = document.getElementById('airpathinfoBox');
-                !existBox ? window.airpath.createInfoBox() : window.airpath.toggleInfoBox();
-            }
-        }},
-        { name: '🔥 유도탄 항적', action: () => {
-            if (window.particle && typeof window.particle.createInfoBox === 'function') {
-                const existBox = document.getElementById('particleinfoBox');
-                !existBox ? window.particle.createInfoBox() : window.particle.toggleInfoBox();
-            }
-        }},
-        { name: '📈 풀업 항적', action: () => {
-            if (window.pullup && typeof window.pullup.createInfoBox === 'function') {
-                const existBox = document.getElementById('pullupinfoBox');
-                !existBox ? window.pullup.createInfoBox() : window.pullup.toggleInfoBox();
-            }
-        }}
-    ];
-    opActions.forEach(item => {
-        const link = document.createElement('a');
-        link.textContent = item.name;
-        link.href = '#';
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            item.action();
-        });
-        opDropContent.appendChild(link);
-    });
-
+    
 
     // 6. ✏️ 그리기 도구 (드롭다운 아이콘)
     const drawDropContent = createDropdownIconButton('✏️ 자유 투명도 그리기', 'edit');
@@ -1575,6 +1188,207 @@
     drawDropContent.appendChild(createDrawLink(drawActions.text));
 
 
+    // 단독 실행형 아이콘 버튼 생성 함수
+    function createIconButton(tooltipText, iconName, clickCallback, customClass = '') {
+        const btn = document.createElement('button');
+        btn.className = `icon-btn ${customClass}`;
+        btn.setAttribute('data-tooltip', tooltipText);
+
+        const img = document.createElement('img');
+        img.src = `img/${iconName}.png`;
+        btn.appendChild(img);
+
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            clickCallback(e);
+        });
+
+        menu.appendChild(btn);
+        return btn;
+    }
+
+    // 투명도 그리기 객체 생성 기록 기반 Undo / Redo
+    const undoStack = [];
+    const redoStack = [];
+    const historyRecordedEntities = new WeakSet();
+    let replayingHistory = false;
+
+    function historyEntities(entity) {
+        return [entity, ...(entity?.customData?.subEntities || [])].filter(Boolean);
+    }
+
+    function refreshHistoryButtons() {
+        if (!undoButton || !redoButton) return;
+        undoButton.disabled = undoStack.length === 0;
+        redoButton.disabled = redoStack.length === 0;
+        undoButton.style.opacity = undoButton.disabled ? '.35' : '1';
+        redoButton.style.opacity = redoButton.disabled ? '.35' : '1';
+    }
+
+    function undoDrawing() {
+        const command = undoStack.pop();
+        if (!command) return;
+        replayingHistory = true;
+        if (viewer.selectedEntity === command.entity) viewer.selectedEntity = undefined;
+        command.entities.forEach(entity => viewer.entities.remove(entity));
+        replayingHistory = false;
+        redoStack.push(command);
+        refreshHistoryButtons();
+        viewer.scene.requestRender();
+    }
+
+    function redoDrawing() {
+        const command = redoStack.pop();
+        if (!command) return;
+        replayingHistory = true;
+        command.entities.forEach(entity => { if (!viewer.entities.contains(entity)) viewer.entities.add(entity); });
+        document.dispatchEvent(new CustomEvent('drawing-entity-added', { detail: { entity: command.entity } }));
+        replayingHistory = false;
+        undoStack.push(command);
+        refreshHistoryButtons();
+        viewer.scene.requestRender();
+    }
+
+    function clearDrawingHistory() {
+        undoStack.length = 0;
+        redoStack.length = 0;
+        refreshHistoryButtons();
+    }
+
+    document.addEventListener('drawing-entity-added', event => {
+        const entity = event.detail?.entity;
+        if (replayingHistory || !entity?.customData?.drawingType || entity.customData.isDrawingGroup || historyRecordedEntities.has(entity)) return;
+        historyRecordedEntities.add(entity);
+        undoStack.push({ entity, entities: historyEntities(entity) });
+        redoStack.length = 0;
+        refreshHistoryButtons();
+    });
+
+    function createHistoryButton(imagePath, tooltip, action) {
+        const button = document.createElement('button');
+        button.className = 'icon-btn';
+        button.type = 'button';
+        button.setAttribute('data-tooltip', tooltip);
+        const image = document.createElement('img');
+        image.src = imagePath;
+        image.alt = tooltip;
+        button.appendChild(image);
+        button.addEventListener('click', event => { event.stopPropagation(); action(); });
+        menu.appendChild(button);
+        return button;
+    }
+
+    const undoButton = createHistoryButton('/img/Left.png', '실행 취소 (Ctrl+Z)', undoDrawing);
+    const redoButton = createHistoryButton('/img/Right.png', '다시 실행 (Ctrl+R)', redoDrawing);
+    homeButton.after(undoButton, redoButton);
+    refreshHistoryButtons();
+
+    document.addEventListener('keydown', event => {
+        if (!event.ctrlKey || event.altKey) return;
+        if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+        const key = event.key.toLowerCase();
+        if (key === 'z') {
+            event.preventDefault();
+            undoDrawing();
+        } else if (key === 'r') {
+            event.preventDefault();
+            redoDrawing();
+        }
+    });
+
+    // 💡 헬퍼 2: 마우스 지연 반응 타이머 기반 드롭다운 생성 함수
+    function createDropdownIconButton(tooltipText, iconName) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'dropdown-wrapper';
+
+        const triggerBtn = document.createElement('button');
+        triggerBtn.className = 'drop-trigger';
+        triggerBtn.setAttribute('title', tooltipText); 
+
+        const img = document.createElement('img');
+        //img.src = `https://api.iconify.design/material-symbols:${iconName}-rounded.svg`;
+        img.src = `img/${iconName}.png`;
+        triggerBtn.appendChild(img);
+        wrapper.appendChild(triggerBtn);
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'dropdown-content';
+        wrapper.appendChild(contentDiv);
+
+        let closeTimer = null;
+
+        const showMenu = () => {
+            if (closeTimer) {
+                clearTimeout(closeTimer);
+                closeTimer = null;
+            }
+            contentDiv.style.display = 'block';
+        };
+
+        const hideMenuDeferred = () => {
+            if (!closeTimer) {
+                closeTimer = setTimeout(() => {
+                    contentDiv.style.display = 'none';
+                }, 200); 
+            }
+        };
+
+        wrapper.addEventListener('mouseenter', showMenu);
+        wrapper.addEventListener('mouseleave', hideMenuDeferred);
+        contentDiv.addEventListener('mouseenter', showMenu);
+        contentDiv.addEventListener('mouseleave', hideMenuDeferred);
+
+        menu.appendChild(wrapper);
+        return contentDiv; 
+    }
+
+
+    // ==========================================
+    // ⚙️ 버튼 및 드롭다운 아이콘 셋 정의
+    // ==========================================
+
+    // createIconButton('🖼️ 빌보드 핀 배치', 'pin-drop', () => {
+    //     if (window.billboard) {
+    //         const dialog = document.getElementById('billboard-dialog');
+            
+    //         // 1. 다이얼로그가 숨겨져 있다면 먼저 화면에 표시합니다.
+    //         if (dialog && getComputedStyle(dialog).display === 'none') {
+    //             window.billboard.showUI();
+    //         }
+            
+    //         // 2. UI에 입력된 위경도/이미지 설정값으로 빌보드를 생성(또는 토글)합니다.
+    //         if (typeof window.billboard.createBillboardFromUI === 'function') {
+    //             window.billboard.createBillboardFromUI();
+    //         }
+    //     } else {
+    //         console.warn("billboard 모듈이 로드되지 않았습니다.");
+    //     }
+    // });
+
+   
+    // 📐 측정 도구 (드롭다운 아이콘)
+    const measureDropContent = createDropdownIconButton('📐 측정 기능 모음', 'straighten');
+    const measureActions = [
+        { name: '📏 거리 측정', action: () => { if(window.distance) distance.start(); } },
+        { name: '📐 면적 측정', action: () => { if(window.measure) measure.start(); } },
+        { name: '👁️‍🗨️ 가시선(LOS) 작도', action: () => { if(window.drawSightViewLine) drawSightViewLine.start(); } },
+        { name: '📊 차폐/LOS 분석', action: () => { 
+            if (window.angleLos && typeof window.angleLos.showMoveInfo === 'function') window.angleLos.showMoveInfo();
+        }}
+    ];
+    measureActions.forEach(item => {
+        const link = document.createElement('a');
+        link.textContent = item.name;
+        link.href = '#';
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            item.action();
+        });
+        measureDropContent.appendChild(link);
+    });
+
+    
+
     // ⛰️ 지형 프로파일링: Floor.png 버튼을 누른 후 지도에서 시작점/끝점을 선택합니다.
     let terrainProfileDialog = null;
     let terrainProfileActive = false;
@@ -1709,6 +1523,195 @@
             console.warn('CoordinateDialog 스크립트가 로드되지 않았습니다.');
         }
     });
+
+// 대탄도탄 작전 (드롭다운 아이콘)
+    const opDropContent = createDropdownIconButton('🚀 대탄도탄 작전 모음', 'rocket-launch');
+    const opActions = [
+        { name: '🗺️ 공역생성', action: () => {
+            if (window.airspace && typeof window.airspace.togglePanel === 'function') {
+                window.airspace.togglePanel();
+            } else {
+                console.error('airspace.js가 로드되지 않았습니다.');
+                alert('공역생성 모듈을 불러오지 못했습니다.');
+            }
+        }},
+        { name: '🌐 Dome 그리기', action: () => {
+            if (window.domeDrawing && typeof window.domeDrawing.createControlPanel === 'function') {
+                const existBox = document.getElementById('controlPanel');
+                !existBox ? window.domeDrawing.createControlPanel() : window.domeDrawing.toggleInfoBox();
+            }
+        }},
+        { name: '📡 레이다 빔', action: () => {
+            if (window.radar && typeof window.radar.createInfoBox === 'function') {
+                const existBox = document.getElementById('radarInfoBox');
+                !existBox ? window.radar.createInfoBox() : window.radar.toggleInfoBox();
+            }
+        }},
+        { name: '🚀 탄도탄 경로', action: () => {
+            if (window.curve && typeof window.curve.createInfoBox === 'function') {
+                const existBox = document.getElementById('missileinfoBox');
+                !existBox ? window.curve.createInfoBox() : window.curve.toggleInfoBox();
+            }
+        }},
+        { name: '✈️ 항공기 항적', action: () => {
+            if (window.airpath && typeof window.airpath.createInfoBox === 'function') {
+                const existBox = document.getElementById('airpathinfoBox');
+                !existBox ? window.airpath.createInfoBox() : window.airpath.toggleInfoBox();
+            }
+        }},
+        { name: '🔥 유도탄 항적', action: () => {
+            if (window.particle && typeof window.particle.createInfoBox === 'function') {
+                const existBox = document.getElementById('particleinfoBox');
+                !existBox ? window.particle.createInfoBox() : window.particle.toggleInfoBox();
+            }
+        }},
+        { name: '📈 풀업 항적', action: () => {
+            if (window.pullup && typeof window.pullup.createInfoBox === 'function') {
+                const existBox = document.getElementById('pullupinfoBox');
+                !existBox ? window.pullup.createInfoBox() : window.pullup.toggleInfoBox();
+            }
+        }}
+    ];
+    opActions.forEach(item => {
+        const link = document.createElement('a');
+        link.textContent = item.name;
+        link.href = '#';
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            item.action();
+        });
+        opDropContent.appendChild(link);
+    });
+
+
+    // 3. 👁 보기 (스케일바 / 상태바 표시 전환)
+    const viewDropContent = createDropdownIconButton('👁 보기', 'View-In-Ar');
+
+    function createViewAction(labelText, action) {
+        const link = document.createElement('a');
+        link.href = '#';
+        link.textContent = labelText;
+        link.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            action();
+        });
+        viewDropContent.appendChild(link);
+        return link;
+    }
+
+    // 보기 메뉴의 첫 항목
+    createViewAction('빌보드 배치', () => {
+        const dialog = document.getElementById('billboard-dialog');
+        if (dialog) {
+            const isHidden = getComputedStyle(dialog).display === 'none';
+            dialog.style.display = isHidden ? 'block' : 'none';
+        } else if (window.billboard && typeof window.billboard.createBillboardFromUI === 'function') {
+            window.billboard.createBillboardFromUI();
+        }
+    });
+
+    function createViewCheckbox(labelText, checked, onChange) {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        const text = document.createElement('span');
+        checkbox.type = 'checkbox';
+        checkbox.checked = checked;
+        text.textContent = labelText;
+        label.append(checkbox, text);
+        viewDropContent.appendChild(label);
+        checkbox.addEventListener('change', () => onChange(checkbox.checked));
+        return checkbox;
+    }
+
+    const compassCheckbox = createViewCheckbox('나침반', true, checked => {
+        const compass = document.getElementById('compass');
+        const visible = compass ? getComputedStyle(compass).display !== 'none' : !checked;
+        if (visible !== checked && typeof toggleCompass === 'function') toggleCompass();
+    });
+    const syncCompassCheckbox = () => {
+        const compass = document.getElementById('compass');
+        if (compass) compassCheckbox.checked = getComputedStyle(compass).display !== 'none';
+    };
+    window.addEventListener('load', syncCompassCheckbox, { once: true });
+    setTimeout(syncCompassCheckbox, 0);
+
+    // mapDraw.ModelDraw()의 초기값이 숨김이므로 체크 해제 상태로 시작한다.
+    createViewCheckbox('3D 모델 ON/OFF', false, () => {
+        window.mapDrawing?.toggleTilesetVisibility?.();
+    });
+
+    function createVisibilityToggle(labelText, controlName, changeEventName) {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        const text = document.createElement('span');
+        checkbox.type = 'checkbox';
+        checkbox.checked = true;
+        text.textContent = labelText;
+        label.append(checkbox, text);
+        viewDropContent.appendChild(label);
+
+        const sync = () => {
+            const control = window[controlName];
+            checkbox.checked = control ? control.isVisible() : false;
+            checkbox.disabled = !control;
+        };
+        checkbox.addEventListener('change', () => {
+            window[controlName]?.setVisible(checkbox.checked);
+        });
+        document.addEventListener(changeEventName, sync);
+        window.addEventListener('load', sync, { once: true });
+        setTimeout(sync, 0);
+        return checkbox;
+    }
+
+    createVisibilityToggle('스케일바', 'ScaleBarControl', 'scalebar-visibility-changed');
+    createVisibilityToggle('Status Bar', 'StatusBarControl', 'statusbar-visibility-changed');
+
+    // 2차원 지도 체크 시 2D로, 체크 해제 시 기본 3D 보기로 전환합니다.
+    const map2DLabel = document.createElement('label');
+    const map2DCheckbox = document.createElement('input');
+    const map2DText = document.createElement('span');
+    map2DCheckbox.type = 'checkbox';
+    map2DCheckbox.checked = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
+    map2DText.textContent = '2차원 지도';
+    map2DLabel.append(map2DCheckbox, map2DText);
+    viewDropContent.appendChild(map2DLabel);
+
+    map2DCheckbox.addEventListener('change', () => {
+        if (map2DCheckbox.checked) {
+            viewer.scene.morphTo2D(1.0);
+        } else {
+            viewer.scene.morphTo3D(1.0);
+        }
+    });
+
+    // 다른 코드에서 보기 모드를 변경해도 메뉴 체크 상태를 실제 지도와 맞춥니다.
+    viewer.scene.morphComplete.addEventListener(() => {
+        const is2D = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
+        map2DCheckbox.checked = is2D;
+
+        if (is2D) {
+            // 3D 홈 버튼과 동일한 중심 좌표 및 확대 수준을 사용합니다.
+            viewer.camera.setView({
+                destination: HOME_VIEW_DESTINATION
+            });
+        } else if (viewer.scene.mode === Cesium.SceneMode.SCENE3D) {
+            // 3D 복귀 시에도 홈 버튼과 동일한 위치와 수직 하향 시점을 적용합니다.
+            viewer.camera.setView({
+                destination: HOME_VIEW_DESTINATION,
+                orientation: {
+                    heading: Cesium.Math.toRadians(0.0),
+                    pitch: Cesium.Math.toRadians(-90.0),
+                    roll: 0.0
+                }
+            });
+        }
+
+        viewer.scene.requestRender();
+    });
+
+
 
     // 환경 설정 (Base Map, GPS, 화면 설정)
     createIconButton('⚙️ 설정', 'settings', () => {
