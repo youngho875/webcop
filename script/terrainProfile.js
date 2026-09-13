@@ -60,6 +60,9 @@
       this.endpoints = [];
       this.selectionCleanup = null;
       this.resizeObserver = null;
+      this._dragging = false;
+      this._renderPending = false;
+      this._chartSize = null;
       this.uid = `terrain-profile-${Math.random().toString(36).slice(2)}`;
       this._buildDialog();
     }
@@ -143,7 +146,13 @@
 
       this.root = root;
       this._enableDrag(header.node());
-      this.resizeObserver = new ResizeObserver(() => this.render());
+      this.resizeObserver = new ResizeObserver(() => {
+        const host = this.chartHost.node();
+        const size = `${host.clientWidth}:${host.clientHeight}`;
+        if (size === this._chartSize) return;
+        if (this._dragging) { this._renderPending = true; return; }
+        this.render();
+      });
       this.resizeObserver.observe(root.node());
 
       this._onKeyDown = (event) => {
@@ -171,23 +180,37 @@
     }
 
     _enableDrag(handle) {
-      d3.select(handle).call(
-        d3.drag().on("start", (event) => {
-          const rect = this.root.node().getBoundingClientRect();
-          this.root
-            .style("left", `${rect.left}px`)
-            .style("top", `${rect.top}px`)
-            .style("transform", "none");
-          event.on("drag", (dragEvent) => {
-            const node = this.root.node();
-            const box = node.getBoundingClientRect();
-            const left = Math.max(0, Math.min(innerWidth - box.width, box.left + dragEvent.dx));
-            const minimumTop = this._mainMenuBottom();
-            const top = Math.max(minimumTop, Math.min(innerHeight - box.height, box.top + dragEvent.dy));
-            this.root.style("left", `${left}px`).style("top", `${top}px`);
-          });
-        })
-      );
+      let drag = null;
+      handle.style.touchAction = "none";
+      handle.addEventListener("pointerdown", event => {
+        if (event.button !== 0 || event.target.closest("button,input,select,textarea")) return;
+        const rect = this.root.node().getBoundingClientRect();
+        drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+        this._dragging = true;
+        this.root.style("left", `${rect.left}px`).style("top", `${rect.top}px`).style("transform", "none");
+        handle.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      });
+      handle.addEventListener("pointermove", event => {
+        if (!drag || event.pointerId !== drag.id) return;
+        // 이동 중에는 레이아웃 측정, 메뉴 충돌 보정, 차트 재생성을 하지 않는다.
+        this.root.style("left", `${drag.left + event.clientX - drag.x}px`)
+          .style("top", `${drag.top + event.clientY - drag.y}px`);
+        event.preventDefault();
+      });
+      const finish = event => {
+        if (!drag || event.pointerId !== drag.id) return;
+        drag = null;
+        this._dragging = false;
+        const rect = this.root.node().getBoundingClientRect();
+        this.root.style("left", `${Math.max(0, Math.min(window.innerWidth - rect.width, rect.left))}px`)
+          .style("top", `${Math.max(0, Math.min(window.innerHeight - 40, rect.top))}px`);
+        if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+        if (this._renderPending) { this._renderPending = false; this.render(); }
+      };
+      handle.addEventListener("pointerup", finish);
+      handle.addEventListener("pointercancel", finish);
+      handle.addEventListener("lostpointercapture", finish);
     }
 
     /** 거리(m)와 고도(m)가 포함된 가변 배열로 차트를 갱신합니다. */
@@ -224,9 +247,11 @@
 
     render() {
       if (!this.svg) return this;
+      if (this._dragging) { this._renderPending = true; return this; }
       const node = this.chartHost.node();
       const width = Math.max(1, node.clientWidth);
       const height = Math.max(1, node.clientHeight);
+      this._chartSize = `${node.clientWidth}:${node.clientHeight}`;
       const margin = { top: 16, right: 22, bottom: 42, left: 58 };
       const innerWidth = Math.max(1, width - margin.left - margin.right);
       const innerHeight = Math.max(1, height - margin.top - margin.bottom);

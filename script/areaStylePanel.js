@@ -171,7 +171,10 @@
         panel.querySelector('.asp-close').addEventListener('click', close);
         panel.querySelector('.asp-draw-button').addEventListener('click', () => {
             if (typeof pendingDraw !== 'function') return;
-            pendingDraw();
+            const startDrawing = pendingDraw;
+            // 이름/옵션 입력 창이 지도 조작을 가리지 않도록 먼저 숨긴 뒤 그리기를 시작한다.
+            panel.hidden = true;
+            startDrawing();
             if (panelMode === 'point') {
                 panel.querySelector('.asp-draw-button').textContent = '점 그리기 활성화됨 · 다시 시작';
                 panel.querySelector('.asp-help').textContent = '지도에서 원하는 위치를 한 번 클릭하세요. 연속 배치도 가능합니다.';

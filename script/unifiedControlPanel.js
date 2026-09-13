@@ -15,6 +15,19 @@ window.unifiedControlPanel = (function () {
   let symbolDropTarget = null;
   let symbolDragOverHandler = null;
   let symbolDropHandler = null;
+  let multipointHandler = null;
+  let multipointEntity = null;
+  let liveTacticalEntity = null;
+  let lastTacticalPreviewAt = 0;
+  let multipointPositions = [];
+  let multipointMousePosition = null;
+  let savedDoubleClickAction = null;
+  let lastMultipointClickAt = 0;
+  let multipointRequirements = { min: 2, max: Infinity };
+  let activeMultipointType = "line";
+  let entityDragHandler = null;
+  let entityDragCanvas = null;
+  let entityDragState = null;
 
   // ==========================================
   // 1. UI 동적 생성 (통합 UI + 리스트박스)
@@ -40,23 +53,30 @@ window.unifiedControlPanel = (function () {
         <!-- TAB 1: 군대 부호 -->
         <div id="tabContentSymbol" style="display: block;">
           <div style="margin-bottom: 6px; color: #555; font-size: 12px; text-align: center;">
-            아래 군대부호를 지도 위 원하는 위치로 드래그하세요.
+            부호 선택 → 배치 전 속성 편집 → 적용 후 지도를 클릭하세요.
           </div>
           <div id="symbolList" style="display: flex; justify-content: center; align-items: center; margin-bottom: 10px; height: 90px; cursor: grab; background: #f9f9f9; border: 1px solid #eee; border-radius: 4px;">
           </div>
           <div id="symbolSelectionInfo" style="min-height: 34px; margin: -4px 0 8px; color: #555; font-size: 11px; text-align: center; line-height: 1.45;"></div>
-          
+
           <div style="display: flex; align-items: center; margin-bottom: 10px; font-size: 13px;">
             <label for="sympo2" style="margin-right: 10px; width: 60px;">피아식별</label>
             <select name="StandardIdentity/ExerciseDescriptor" id="sympo2" style="padding: 4px; background: #f4f4f4; border: 1px solid #d1d1d1; border-radius: 4px; font-size: 12px; flex-grow: 1; outline: none;">
               <option value="-">미지정</option>
-              <option value="P">판단 대기</option>
-              <option value="U">미상</option>
-              <option value="A">우군 추정</option>
-              <option value="F">우군</option>
+              <option value="P">식별보류</option>
+              <option value="U">미식별</option>
+              <option value="F">아군</option>
               <option value="N">중립</option>
-              <option value="S">적성 의심</option>
               <option value="H">적군</option>
+              <option value="A">아군간주</option>
+              <option value="S">적군간주</option>
+              <option value="G">(훈)식별보류</option>
+              <option value="W">(훈)미식별</option>
+              <option value="D">(훈)아군</option>
+              <option value="L">(훈)중립</option>
+              <option value="M">(훈)아군간주</option>
+              <option value="J">의심적</option>
+              <option value="K">가상적</option>
             </select>
           </div>
 
@@ -68,6 +88,9 @@ window.unifiedControlPanel = (function () {
           <div style="border: 1px solid #ccc; background: white; height: 320px; overflow: auto; padding: 5px;">
             <div id="layerTreeStatus" style="display: none; padding: 8px; color: #777; font-size: 12px;"></div>
             <div id="layerTree" style="font-size: 13px; color: #000;"></div>
+          </div>
+          <div style="position:sticky;bottom:0;background:white;padding-top:8px;display:flex;gap:6px;">
+            <button id="editSelectedIcopSymbol" type="button" disabled style="flex:1;padding:7px;">배치 전 속성 편집</button>
           </div>
         </div>
 
@@ -155,7 +178,10 @@ window.unifiedControlPanel = (function () {
 
     document.body.insertAdjacentHTML("beforeend", uiHTML);
 
-    document.getElementById("btnUnifiedClose").addEventListener("click", () => toggleUI());
+    document.getElementById("btnUnifiedClose").addEventListener("click", () => {
+      cancelMultipointDrawing(true);
+      toggleUI();
+    });
 
     const tabBtnSymbol = document.getElementById("tabBtnSymbol");
     const tabBtnControl = document.getElementById("tabBtnControl");
@@ -170,6 +196,7 @@ window.unifiedControlPanel = (function () {
     });
 
     tabBtnControl.addEventListener("click", () => {
+      cancelMultipointDrawing(true);
       tabContentSymbol.style.display = "none";
       tabContentControl.style.display = "block";
       tabBtnSymbol.style.background = "#fff";
@@ -267,12 +294,13 @@ window.unifiedControlPanel = (function () {
     if (!symbolList || !sympo2) return;
 
     function applyAffiliation(sidc, affiliation) {
-      if (typeof sidc !== "string" || sidc.length !== 15) return sidc;
+      if (typeof sidc !== "string" || sidc.length !== 15 || sidc.startsWith("W")) return sidc;
       return sidc.substring(0, 1) + affiliation + sidc.substring(2);
     }
 
     function renderSymbol(sidc, metadata = currentSymbolMetadata) {
-      symbolList.innerHTML = ""; 
+      symbolList.innerHTML = "";
+      symbolList.style.height = "90px";
       currentSymbolMetadata = metadata || {};
       const info = document.getElementById("symbolSelectionInfo");
       const geometry = currentSymbolMetadata.geometry || "POINT";
@@ -283,18 +311,37 @@ window.unifiedControlPanel = (function () {
         info.textContent = `${displayName} · ${sidc || "SIDC 없음"}`;
       }
 
-      if (!sidc || renderer !== "milsymbol" || geometry !== "POINT") {
+      if (!sidc || !["milsymbol","icop-svg"].includes(renderer) || geometry !== "POINT") {
         const guide = document.createElement("div");
         guide.style.cssText = "padding:10px; text-align:center; color:#555; line-height:1.5;";
-        guide.innerHTML = `<strong>${displayName}</strong><br><span>${geometry} 전술도형 · 지도 그리기 도구 연동 필요</span>`;
+        const title = document.createElement("strong");
+        title.textContent = displayName;
+        guide.appendChild(title);
+        const hint = document.createElement("div");
+        hint.textContent = "속성을 편집한 후 지도 배치를 시작하세요.";
+        guide.appendChild(hint);
         symbolList.appendChild(guide);
+        if (["LINE", "POLYGON", "MULTIPOINT"].includes(geometry)) {
+          try {
+            const state = currentSymbolMetadata.icopEditor || {name:displayName,values:{}};
+            const geo = window.unifiedControlPanel.previewTactical(currentSymbolMetadata,null,state,sidc);
+            if (!geo) throw new Error("미리보기를 생성할 수 없습니다.");
+            guide.replaceChildren(window.IcopSymbolEditor.buildTacticalPreview(geo));
+            guide.style.cssText = "width:100%;";
+            symbolList.style.height = "130px";
+          } catch(error) { hint.textContent = error.message; }
+
+        }
         return;
       }
 
+      if (multipointHandler) cancelMultipointDrawing(true);
+
       let symbolUrl = "";
       try {
-        const symbol = new ms.Symbol(sidc, { size: 60 });
-        symbolUrl = symbol.asSVG();
+        symbolUrl = currentSymbolMetadata.renderer === "icop-svg"
+          ? window.IcopSvgRenderer.render(currentSymbolMetadata,sidc,{size:60,...(currentSymbolMetadata.symbolOptions||{})},currentSymbolMetadata.icopEditor?.values||{})
+          : new ms.Symbol(sidc, { size: 60, ...(currentSymbolMetadata.symbolOptions || {}) }).asSVG();
       } catch (e) {
         symbolUrl = `<div style="width:80px; height:80px; background:#ccc; display:flex; justify-content:center; align-items:center;">?</div>`;
       }
@@ -308,6 +355,7 @@ window.unifiedControlPanel = (function () {
         e.dataTransfer.effectAllowed = "copy";
         e.dataTransfer.setData("application/x-military-sidc", sidc);
         e.dataTransfer.setData("text/plain", sidc);
+        e.dataTransfer.setData("application/x-webcop-symbol",JSON.stringify(currentSymbolMetadata));
         div.style.cursor = "grabbing";
         div.style.opacity = "0.65";
       });
@@ -324,15 +372,512 @@ window.unifiedControlPanel = (function () {
 
     sympo2.addEventListener("change", (e) => {
       const indc = e.target.value;
-      if (currentSidc.length >= 15) {
-        currentSidc = currentSidc.substring(0, 1) + indc + currentSidc.substring(2);
+      if (currentSidc && currentSidc.length >= 15) {
+        currentSidc = applyAffiliation(currentSidc, indc);
         renderSymbol(currentSidc);
       }
     });
 
+    document.getElementById("editSelectedIcopSymbol").onclick = () => {
+      cancelMultipointDrawing(true);
+      window.IcopSymbolEditor.open(currentSymbolMetadata, null, ({state,sidc,symbolOptions}) => {
+        currentSymbolMetadata = {...currentSymbolMetadata, icopEditor:state, symbolOptions};
+        currentSidc = currentSymbolMetadata.selectable === false ? "" : sidc;
+        if (!sidc.startsWith("W")) sympo2.value = "-PUFNHASGWDLMJK".includes(sidc[1]) ? sidc[1] : "-";
+        if (currentSidc) {
+          renderSymbol(currentSidc,currentSymbolMetadata);
+          if (["LINE","POLYGON","MULTIPOINT"].includes(currentSymbolMetadata.geometry)) startMultipointDrawing();
+          else startPointPlacement();
+        }
+        else setMultipointStatus(`${currentSymbolMetadata.text} · 편집값 저장 완료`);
+      });
+    };
     initLayerTree(renderSymbol, applyAffiliation);
 
     setupSymbolDropLogic();
+  }
+
+  function setMultipointStatus(message) {
+    const status = document.getElementById("symbolSelectionInfo");
+    if (status && message) status.textContent = message;
+  }
+
+  function getSelectedMultipointType() {
+    const geometry = currentSymbolMetadata.geometry;
+    const hierarchy = String(currentSymbolMetadata.hierarchy || "");
+    const name = String(currentSymbolMetadata.textEn || currentSymbolMetadata.text || "");
+    if (geometry === "POLYGON") return "area";
+    if (/AXSADV|AXIS OF ADVANCE/i.test(`${hierarchy} ${name}`)) return "axis";
+    if (geometry === "MULTIPOINT") return "arrow";
+    return "line";
+  }
+
+  function getMultipointViewer() {
+    return window.CesiumViewer || (typeof viewer !== "undefined" ? viewer : null);
+  }
+
+  function pickMultipointPosition(currentViewer, screenPosition) {
+    let cartesian;
+    if (currentViewer.scene.pickPositionSupported) {
+      cartesian = currentViewer.scene.pickPosition(screenPosition);
+    }
+    if (!Cesium.defined(cartesian)) {
+      cartesian = currentViewer.camera.pickEllipsoid(screenPosition, currentViewer.scene.globe.ellipsoid);
+    }
+    return Cesium.defined(cartesian) ? cartesian : null;
+  }
+
+  function getMultipointPreviewPositions() {
+    return multipointMousePosition
+      ? multipointPositions.concat([multipointMousePosition])
+      : multipointPositions.slice();
+  }
+
+  function cesiumColor(value, fallback, alpha) {
+    let color = fallback;
+    try {
+      if (typeof value === "string" && value) color = Cesium.Color.fromCssColorString(value);
+    } catch (error) {}
+    if (!color) color = Cesium.Color.YELLOW;
+    return Number.isFinite(alpha) ? color.withAlpha(alpha) : color;
+  }
+
+  function getRendererView(currentViewer, coordinates) {
+    const rectangle = currentViewer.camera.computeViewRectangle(currentViewer.scene.globe.ellipsoid);
+    let bbox = "";
+    if (rectangle) {
+      bbox = [rectangle.west, rectangle.south, rectangle.east, rectangle.north]
+        .map(value => Cesium.Math.toDegrees(value))
+        .join(",");
+    } else {
+      const lons = coordinates.map(point => point.lon);
+      const lats = coordinates.map(point => point.lat);
+      bbox = `${Math.min(...lons) - 1},${Math.min(...lats) - 1},${Math.max(...lons) + 1},${Math.max(...lats) + 1}`;
+    }
+    const height = currentViewer.camera.positionCartographic?.height || 50000;
+    return { bbox: bbox, scale: Math.max(5000, Math.round(height * 2)) };
+  }
+
+  function polygonHierarchyFromCoordinates(rings) {
+    if (!Array.isArray(rings) || !rings.length) return null;
+    const toCartesian = ring => ring.map(point => Cesium.Cartesian3.fromDegrees(point[0], point[1], point[2] || 0));
+    return new Cesium.PolygonHierarchy(
+      toCartesian(rings[0]),
+      rings.slice(1).map(ring => new Cesium.PolygonHierarchy(toCartesian(ring)))
+    );
+  }
+
+  function addRenderedGeoJsonFeature(currentViewer, feature, parent, childIds) {
+    const geometry = feature?.geometry;
+    const properties = feature?.properties || {};
+    if (!geometry || !geometry.type || !Array.isArray(geometry.coordinates) || geometry.coordinates.length === 0) return;
+
+    const addLine = coordinates => {
+      if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+      const child = currentViewer.entities.add({
+        parent: parent,
+        polyline: {
+          positions: coordinates.map(point => Cesium.Cartesian3.fromDegrees(point[0], point[1], point[2] || 0)),
+          width: Number(properties.strokeWidth || properties.strokeWeight) || 3,
+          clampToGround: true,
+          material: Array.isArray(properties.strokeDasharray) && properties.strokeDasharray.length
+            ? new Cesium.PolylineDashMaterialProperty({color:cesiumColor(properties.strokeColor,Cesium.Color.YELLOW,Number(properties.lineOpacity)),dashLength:properties.strokeDasharray.reduce((sum,n)=>sum+Number(n),0) || 16})
+            : cesiumColor(properties.strokeColor, Cesium.Color.YELLOW, Number(properties.lineOpacity))
+        }
+      });
+      childIds.push(child.id);
+    };
+
+    const addPolygon = rings => {
+      const hierarchy = polygonHierarchyFromCoordinates(rings);
+      if (!hierarchy) return;
+      const fillAlpha = Number.isFinite(Number(properties.fillOpacity)) ? Number(properties.fillOpacity) : 0.25;
+      const child = currentViewer.entities.add({
+        parent: parent,
+        polygon: {
+          hierarchy: hierarchy,
+          material: properties.fillPattern
+            ? new Cesium.ImageMaterialProperty({image:properties.fillPattern,transparent:true,repeat:new Cesium.Cartesian2(12,12)})
+            : cesiumColor(properties.fillColor, Cesium.Color.YELLOW, fillAlpha),
+          outline: false,
+          outlineColor: cesiumColor(properties.strokeColor, Cesium.Color.YELLOW),
+          height: 0,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        }
+      });
+      childIds.push(child.id);
+      rings.forEach(ring => { if (ring.length > 1) addLine(ring); });
+    };
+
+    if (geometry.type === "LineString") addLine(geometry.coordinates);
+    if (geometry.type === "MultiLineString") geometry.coordinates.forEach(addLine);
+    if (geometry.type === "Polygon") addPolygon(geometry.coordinates);
+    if (geometry.type === "MultiPolygon") geometry.coordinates.forEach(addPolygon);
+    if (geometry.type === "Point" && properties.image) {
+      const point = geometry.coordinates;
+      const child = currentViewer.entities.add({parent,
+        position:Cesium.Cartesian3.fromDegrees(point[0],point[1],point[2] || 0),
+        billboard:{image:properties.image,rotation:-Cesium.Math.toRadians(Number(properties.rotation)||0),
+          pixelOffset:new Cesium.Cartesian2(Number(properties.anchorOffsetX)||0,Number(properties.anchorOffsetY)||0),
+          heightReference:Cesium.HeightReference.CLAMP_TO_GROUND,disableDepthTestDistance:Number.POSITIVE_INFINITY}});
+      childIds.push(child.id);
+    }
+    if (geometry.type === "Point" && properties.label) {
+      const point = geometry.coordinates;
+      const fontSize = parseInt(properties.fontSize, 10) || 12;
+      const child = currentViewer.entities.add({
+        parent: parent,
+        position: Cesium.Cartesian3.fromDegrees(point[0], point[1], point[2] || 0),
+        label: {
+          text: String(properties.label),
+          font: `${properties.fontWeight || "bold"} ${fontSize}px ${properties.fontFamily || "sans-serif"}`,
+          fillColor: cesiumColor(properties.fontColor, Cesium.Color.YELLOW),
+          outlineColor: cesiumColor(properties.labelOutlineColor, Cesium.Color.BLACK),
+          outlineWidth: Number(properties.labelOutlineWidth) || 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        }
+      });
+      childIds.push(child.id);
+    }
+  }
+
+  function getTacticalModifierValues(overrides) {
+    return {
+      distance1: Number(overrides?.distance1) || 1000,
+      distance2: Number(overrides?.distance2) || 5000,
+      azimuth1: Number(overrides?.azimuth1 ?? 315),
+      azimuth2: Number(overrides?.azimuth2 ?? 45)
+    };
+  }
+
+  function renderMilitaryTacticalGraphic(currentViewer, sidc, coordinates, name, modifierOverrides, previewOnly = false) {
+    const renderer = window.C5Ren;
+    if (!renderer?.C2DLookup || !renderer?.WebRenderer || !Array.isArray(coordinates)) return null;
+
+    let root = null;
+    const childIds = [];
+    try {
+      const sourceDefinition = window.IcopDefinitionRenderer?.definition(sidc);
+      const convertedSidc = sourceDefinition ? sidc : renderer.C2DLookup.getInstance().getDCode(sidc);
+      if (!convertedSidc) throw new Error(`2525D 변환 코드가 없습니다: ${sidc}`);
+
+      const controlPoints = coordinates.map(point => `${point.lon},${point.lat}`).join(" ");
+      const view = getRendererView(currentViewer, coordinates);
+      const values = getTacticalModifierValues(modifierOverrides);
+      const modifiers = new Map([
+        [renderer.Modifiers.AM_DISTANCE, `${values.distance1},${values.distance2}`],
+        [renderer.Modifiers.AN_AZIMUTH, `${Number.isFinite(values.azimuth1) ? values.azimuth1 : 315},${Number.isFinite(values.azimuth2) ? values.azimuth2 : 45}`],
+        [renderer.Modifiers.T_UNIQUE_DESIGNATION_1, name]
+      ]);
+      for (const [key,value] of Object.entries(modifierOverrides?.icopValues || {})) {
+        if (!/^(B|C|D|F|G|H[12]?|J|K|L|M|N|P|Q|R2?|S|T[12]?|V|W1?|X|Y|Z|AA|AB|AC|AD|AE|AF|AG)$/.test(key)) continue;
+        const modifierName = Object.keys(renderer.Modifiers).find(name => name.startsWith(key+"_"));
+        if (modifierName && value !== "" && value != null) modifiers.set(renderer.Modifiers[modifierName], String(value));
+      }
+      const output = sourceDefinition
+        ? window.IcopDefinitionRenderer.render(sidc,coordinates,name,modifierOverrides?.icopValues || {})
+        : renderer.WebRenderer.RenderSymbol(
+        `tg-${Date.now()}`,
+        name,
+        "",
+        convertedSidc,
+        controlPoints,
+        "clampToGround",
+        view.scale,
+        view.bbox,
+        modifiers,
+        new Map(),
+        renderer.WebRenderer.OUTPUT_FORMAT_GEOJSON
+      );
+      const geoJson = typeof output === "string" ? JSON.parse(output) : output;
+      if (!geoJson || geoJson.type === "error" || !Array.isArray(geoJson.features)) {
+        throw new Error(geoJson?.error || "GeoJSON 결과가 없습니다.");
+      }
+
+      if (previewOnly) return geoJson;
+      const first = coordinates[0];
+      root = currentViewer.entities.add({
+        name: name,
+        position: Cesium.Cartesian3.fromDegrees(first.lon, first.lat)
+      });
+      geoJson.features.forEach(feature => addRenderedGeoJsonFeature(currentViewer, feature, root, childIds));
+      if (childIds.length === 0) {
+        currentViewer.entities.remove(root);
+        throw new Error("표시 가능한 선·면·문자 형상이 없습니다.");
+      }
+      root.customData = { renderedEntityIds: childIds, convertedSidc: convertedSidc };
+      return root;
+    } catch (error) {
+      childIds.forEach(id => currentViewer.entities.removeById(id));
+      if (root) currentViewer.entities.remove(root);
+      console.warn("MIL-STD-2525 전술도형 렌더링 실패.", error);
+      return null;
+    }
+  }
+
+  function tacticalPreviewCoordinates(sidc, geometry, values = {}) {
+    if (window.IcopDefinitionRenderer?.definition(sidc)) return window.IcopDefinitionRenderer.sample(sidc,values);
+    const requirements = getMultipointRequirements(sidc, geometry === "POLYGON" ? "area" : "line");
+    const count = Math.max(requirements.min, Math.min(geometry === "LINE" ? 3 : 4, requirements.max));
+    const base = geometry === "LINE"
+      ? [{lon:127,lat:37},{lon:127.08,lat:37.04},{lon:127.16,lat:37}]
+      : [{lon:127,lat:37},{lon:127.02,lat:37.08},{lon:127.12,lat:37.09},{lon:127.16,lat:37.01}];
+    if (count <= base.length) return base.slice(0,count);
+    return Array.from({length:count},(_,i)=>({lon:127.08+0.08*Math.cos(i*2*Math.PI/count),lat:37.05+0.05*Math.sin(i*2*Math.PI/count)}));
+  }
+
+  function getMultipointRequirements(sidc, fallbackType, values = {}) {
+    const defined = window.IcopDefinitionRenderer?.requirements(sidc,values);
+    if (defined) return defined;
+    const fallback = { min: fallbackType === "area" ? 3 : 2, max: Infinity };
+    const renderer = window.C5Ren;
+    if (!sidc || !renderer?.C2DLookup || !renderer?.MSLookup) return fallback;
+    try {
+      const convertedSidc = renderer.C2DLookup.getInstance().getDCode(sidc);
+      const info = convertedSidc && renderer.MSLookup.getInstance().getMSLInfo(convertedSidc);
+      if (!info) return fallback;
+      const maximum = info.getMaxPointCount();
+      return {
+        min: Math.max(1, info.getMinPointCount()),
+        max: Number.isFinite(maximum) && maximum < 1000 ? maximum : Infinity
+      };
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function createMultipointEntity(currentViewer, type) {
+    const positions = new Cesium.CallbackProperty(getMultipointPreviewPositions, false);
+    const arrowMaterial = typeof Cesium.PolylineArrowMaterialProperty === "function"
+      ? new Cesium.PolylineArrowMaterialProperty(Cesium.Color.RED.withAlpha(0.9))
+      : Cesium.Color.RED.withAlpha(0.9);
+    const polyline = {
+      positions: positions,
+      width: type === "axis" ? 7 : 4,
+      clampToGround: true,
+      material: type === "arrow" || type === "axis"
+        ? arrowMaterial
+        : Cesium.Color.YELLOW.withAlpha(0.9)
+    };
+
+    if (type === "area") {
+      return currentViewer.entities.add({
+        polygon: {
+          hierarchy: new Cesium.CallbackProperty(() => {
+            const preview = getMultipointPreviewPositions();
+            return preview.length >= 3 ? new Cesium.PolygonHierarchy(preview) : null;
+          }, false),
+          material: Cesium.Color.RED.withAlpha(0.25),
+          outline: true,
+          outlineColor: Cesium.Color.RED,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        },
+        polyline: {
+          positions: new Cesium.CallbackProperty(() => {
+            const preview = getMultipointPreviewPositions();
+            return preview.length >= 2 ? preview.concat([preview[0]]) : preview;
+          }, false),
+          width: 3,
+          clampToGround: true,
+          material: Cesium.Color.RED
+        }
+      });
+    }
+
+    if (type === "axis") {
+      return currentViewer.entities.add({
+        corridor: {
+          positions: positions,
+          width: 80,
+          material: Cesium.Color.RED.withAlpha(0.22),
+          outline: true,
+          outlineColor: Cesium.Color.RED,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        },
+        polyline: polyline
+      });
+    }
+
+    return currentViewer.entities.add({ polyline: polyline });
+  }
+
+  function clearLiveTacticalPreview(currentViewer) {
+    if (!currentViewer || !liveTacticalEntity) return;
+    for (const id of liveTacticalEntity.customData?.renderedEntityIds || []) currentViewer.entities.removeById(id);
+    currentViewer.entities.remove(liveTacticalEntity);
+    liveTacticalEntity = null;
+  }
+
+  function refreshLiveTacticalPreview(force = false) {
+    const currentViewer = getMultipointViewer();
+    if (!currentViewer || !multipointEntity) return;
+    if (!force && Date.now() - lastTacticalPreviewAt < 100) return;
+    lastTacticalPreviewAt = Date.now();
+    const positions = getMultipointPreviewPositions().slice(0, multipointRequirements.max);
+    if (positions.length < multipointRequirements.min) return;
+    const coordinates = positions.map(position => {
+      const point = Cesium.Cartographic.fromCartesian(position);
+      return {lon:Cesium.Math.toDegrees(point.longitude),lat:Cesium.Math.toDegrees(point.latitude)};
+    });
+    const rendered = renderMilitaryTacticalGraphic(currentViewer,currentSidc,coordinates,
+      currentSymbolMetadata.icopEditor?.name || currentSymbolMetadata.text,
+      {icopValues:currentSymbolMetadata.icopEditor?.values || {}});
+    if (!rendered) {
+      clearLiveTacticalPreview(currentViewer);
+      multipointEntity.show = true;
+      return;
+    }
+    clearLiveTacticalPreview(currentViewer);
+    liveTacticalEntity = rendered;
+    multipointEntity.show = false;
+    currentViewer.scene.requestRender();
+  }
+
+  function startMultipointDrawing() {
+    const currentViewer = getMultipointViewer();
+    if (!currentViewer) {
+      alert("Cesium 지도가 준비되지 않았습니다.");
+      return;
+    }
+
+    cancelMultipointDrawing(true);
+    multipointPositions = [];
+    multipointMousePosition = null;
+    const selectedGeometry = currentSymbolMetadata.geometry;
+    const selectedSidc = ["LINE", "POLYGON", "MULTIPOINT"].includes(selectedGeometry) ? currentSidc : null;
+    activeMultipointType = getSelectedMultipointType();
+    multipointRequirements = getMultipointRequirements(selectedSidc, activeMultipointType,currentSymbolMetadata.icopEditor?.values || {});
+    multipointEntity = createMultipointEntity(currentViewer, activeMultipointType);
+    multipointHandler = new Cesium.ScreenSpaceEventHandler(currentViewer.scene.canvas);
+
+    multipointHandler.setInputAction(click => {
+      const clickTime = Date.now();
+      if (clickTime - lastMultipointClickAt < 300) return;
+      lastMultipointClickAt = clickTime;
+      if (multipointPositions.length >= multipointRequirements.max) return;
+      const position = pickMultipointPosition(currentViewer, click.position);
+      if (!position) return;
+      const previous = multipointPositions[multipointPositions.length - 1];
+      if (!previous || Cesium.Cartesian3.distance(previous, position) > 0.1) {
+        multipointPositions.push(position);
+      }
+      multipointMousePosition = null;
+      refreshLiveTacticalPreview(true);
+      if (multipointRequirements.max === 1) { finishMultipointDrawing(); return; }
+      setMultipointStatus(`${currentSymbolMetadata.text || currentSymbolMetadata.textEn} · ${multipointPositions.length}개 지점 선택됨 · 더블클릭으로 완료`);
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    multipointHandler.setInputAction(movement => {
+      if (multipointPositions.length === 0) return;
+      multipointMousePosition = pickMultipointPosition(currentViewer, movement.endPosition);
+      refreshLiveTacticalPreview();
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+    multipointHandler.setInputAction(finishMultipointDrawing, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    multipointHandler.setInputAction(() => cancelMultipointDrawing(false), Cesium.ScreenSpaceEventType.RIGHT_CLICK);
+
+    savedDoubleClickAction = currentViewer.screenSpaceEventHandler.getInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    currentViewer.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    const maximumGuide = Number.isFinite(multipointRequirements.max) ? `, 최대 ${multipointRequirements.max}개` : "";
+    setMultipointStatus(`${currentSymbolMetadata.text || currentSymbolMetadata.textEn} · 지도에서 지점을 선택하세요(최소 ${multipointRequirements.min}개${maximumGuide}) · 우클릭 취소${activeMultipointType === "axis" ? " · 전진축은 진행 경로와 마지막 폭 지정점에 따라 모양이 달라집니다." : ""}`);
+  }
+
+  function finishMultipointDrawing() {
+    const currentViewer = getMultipointViewer();
+    if (!currentViewer || !multipointEntity) return;
+
+    const type = activeMultipointType;
+    const minimumPoints = multipointRequirements.min;
+    const finalPositions = multipointPositions.slice();
+    if (finalPositions.length > 1 && Cesium.Cartesian3.distance(
+      finalPositions[finalPositions.length - 1], finalPositions[finalPositions.length - 2]
+    ) < 0.1) finalPositions.pop();
+
+    if (finalPositions.length < minimumPoints) {
+      alert(`${minimumPoints}개 이상의 지점을 선택해주세요.`);
+      return;
+    }
+
+    const typeNames = { line: "전술 선형", arrow: "전술 화살표", area: "폐쇄구역", axis: "작전축" };
+    const selectedGeometry = currentSymbolMetadata.geometry;
+    const selectedTacticalName = ["LINE", "POLYGON", "MULTIPOINT"].includes(selectedGeometry)
+      ? (currentSymbolMetadata.text || currentSymbolMetadata.textEn)
+      : null;
+    const name = currentSymbolMetadata.icopEditor?.name || `${selectedTacticalName || typeNames[type]} ${entityIdCounter}`;
+    const coordinates = finalPositions.map(position => {
+      const cartographic = Cesium.Cartographic.fromCartesian(position);
+      return {
+        lon: Cesium.Math.toDegrees(cartographic.longitude),
+        lat: Cesium.Math.toDegrees(cartographic.latitude)
+      };
+    });
+    let entity = selectedTacticalName
+      ? renderMilitaryTacticalGraphic(currentViewer, currentSidc, coordinates, name, {icopValues:currentSymbolMetadata.icopEditor?.values || {}})
+      : null;
+    if (selectedTacticalName && !entity) {
+      setMultipointStatus("부호 형상을 만들 수 없습니다. 지점 배치와 폭 지정점을 확인하거나 우클릭으로 취소하세요.");
+      return;
+    }
+    clearLiveTacticalPreview(currentViewer);
+    if (entity) {
+      currentViewer.entities.remove(multipointEntity);
+    } else {
+      entity = multipointEntity;
+      entity.name = name;
+      if (entity.polyline) entity.polyline.positions = type === "area" ? finalPositions.concat([finalPositions[0]]) : finalPositions;
+      if (entity.polygon) entity.polygon.hierarchy = new Cesium.PolygonHierarchy(finalPositions);
+      if (entity.corridor) entity.corridor.positions = finalPositions;
+    }
+    entity.customData = {
+      ...(entity.customData || {}),
+      militarySymbol: true,
+      multipointTacticalGraphic: true,
+      source: "unifiedControlPanel",
+      sidc: selectedTacticalName ? currentSidc : null,
+      shape: type,
+      displayName: name,
+      symbolMetadata: selectedTacticalName ? currentSymbolMetadata : null,
+      modifiers: {...getTacticalModifierValues(), icopValues:currentSymbolMetadata.icopEditor?.values || {}},
+      icopEditor: currentSymbolMetadata.icopEditor || null,
+      positions: coordinates
+    };
+    entity.description = `<p><b>전술도형:</b> ${typeNames[type]}</p><p><b>지점 수:</b> ${finalPositions.length}</p>`;
+
+    addEntityToListBox(entity, name, coordinates[0].lon, coordinates[0].lat, `${finalPositions.length}개 지점`);
+    document.dispatchEvent(new CustomEvent("military-symbol-added", { detail: { entity: entity } }));
+    document.dispatchEvent(new CustomEvent("multipoint-tactical-graphic-added", { detail: { entity: entity } }));
+
+    multipointEntity = null;
+    stopMultipointHandler(currentViewer);
+    currentViewer.selectedEntity = entity;
+    currentViewer.scene.requestRender();
+    setMultipointStatus(`${name} · 도시 완료`);
+  }
+
+  function stopMultipointHandler(currentViewer) {
+    clearLiveTacticalPreview(currentViewer);
+    lastTacticalPreviewAt = 0;
+    if (multipointHandler && !multipointHandler.isDestroyed()) multipointHandler.destroy();
+    multipointHandler = null;
+    multipointPositions = [];
+    multipointMousePosition = null;
+    lastMultipointClickAt = 0;
+    multipointRequirements = { min: 2, max: Infinity };
+    activeMultipointType = "line";
+    if (currentViewer && savedDoubleClickAction) {
+      currentViewer.screenSpaceEventHandler.setInputAction(savedDoubleClickAction, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    }
+    savedDoubleClickAction = null;
+  }
+
+  function cancelMultipointDrawing(silent) {
+    const currentViewer = getMultipointViewer();
+    if (currentViewer && multipointEntity) currentViewer.entities.remove(multipointEntity);
+    multipointEntity = null;
+    stopMultipointHandler(currentViewer);
+    if (!silent) setMultipointStatus("전술도형 그리기가 취소되었습니다. 트리에서 다시 선택할 수 있습니다.");
   }
 
   // jsTree와 데이터가 준비된 뒤 트리를 초기화한다. 실패해도 트리 DOM은 훼손하지 않는다.
@@ -365,14 +910,18 @@ window.unifiedControlPanel = (function () {
     }
 
     // <base> 태그가 있거나 현재 페이지 경로가 바뀌어도 같은 JSON을 찾도록 절대 URL로 변환한다.
-    const treeDataUrl = new URL("data1/alldata-2525c-ko.json", document.baseURI).href;
+    const rootId = "ICOP";
+    const treeDataUrl = new URL("icops/alldata-icop-ko.json", document.baseURI).href;
 
     $tree
       .off("select_node.jstree.unifiedPanel ready.jstree.unifiedPanel load_node.jstree.unifiedPanel")
       .on("ready.jstree.unifiedPanel", () => {
         if (statusElement) statusElement.style.display = "none";
         const treeInstance = $tree.jstree(true);
-        if (treeInstance) treeInstance.open_node("2525C");
+        if (treeInstance) {
+          treeInstance.open_node(rootId);
+          if (searchInput?.value.trim()) treeInstance.search(searchInput.value.trim());
+        }
       })
       .on("select_node.jstree.unifiedPanel", (event, data) => {
         const treeInstance = $tree.jstree(true);
@@ -381,12 +930,25 @@ window.unifiedControlPanel = (function () {
         }
 
         const selectedNodeData = data.node.data || (data.node.original && data.node.original.data);
-        const original = data.node.original || {};
-        if (!selectedNodeData || original.selectable === false) return;
+        const original = {...(data.node.original || {})};
+        document.getElementById("editSelectedIcopSymbol").disabled = !original.icopCode && !original.data;
+        const draft = window.IcopSymbolEditor?.readDraft(original.id);
+        if (draft) { original.icopEditor=draft; original.symbolOptions=draft.symbolOptions || {}; }
+        if (!selectedNodeData || original.selectable === false) {
+          cancelMultipointDrawing(true);
+          currentSidc = "";
+          currentSymbolMetadata = original;
+          document.getElementById("symbolList").replaceChildren();
+          document.getElementById("symbolSelectionInfo").textContent = original.mappingStatus === "unsupported"
+            ? `${original.text} · 현재 지원되는 대응 부호가 없습니다.` : "하위 부호를 선택하세요.";
+          return;
+        }
+        cancelMultipointDrawing(true);
 
         const indc = document.getElementById("sympo2").value;
-        currentSidc = selectedNodeData.toString();
+        currentSidc = draft?.renderSidc || selectedNodeData.toString();
         if (indc !== "-") currentSidc = applyAffiliation(currentSidc, indc);
+        else if (draft && !currentSidc.startsWith("W")) document.getElementById("sympo2").value = "-PUFNHASGWDLMJK".includes(currentSidc[1]) ? currentSidc[1] : "-";
         renderSymbol(currentSidc, original);
       })
       .jstree({
@@ -445,13 +1007,85 @@ window.unifiedControlPanel = (function () {
         if (instance) {
           instance.clear_search();
           instance.close_all();
-          instance.open_node("2525C");
+          instance.open_node(rootId);
         }
       };
     }
   }
 
   // 군대부호 미리보기를 Cesium 지도에 드롭하여 도시한다.
+  function placePointSymbol(currentViewer,cartesian,sidc,dropMetadata) {
+      let svg;
+      try {
+        svg = dropMetadata.renderer === "icop-svg"
+          ? window.IcopSvgRenderer.render(dropMetadata,sidc,{size:60,...(dropMetadata.symbolOptions||{})},dropMetadata.icopEditor?.values||{})
+          : new ms.Symbol(sidc, { size: 60, ...(dropMetadata.symbolOptions || {}) }).asSVG();
+      } catch (error) {
+        console.error("군대부호 생성 실패:", error);
+        alert("군대부호 이미지를 생성하지 못했습니다.");
+        return;
+      }
+
+      const imageUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+      const lng = Cesium.Math.toDegrees(cartographic.longitude);
+      const lat = Cesium.Math.toDegrees(cartographic.latitude);
+      const name = `${dropMetadata.icopEditor?.name || dropMetadata.text || "군대부호"} ${entityIdCounter}`;
+      const entity = currentViewer.entities.add({
+        name: name,
+        position: Cesium.Cartesian3.fromDegrees(lng, lat),
+        billboard: {
+          image: imageUrl,
+          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          verticalOrigin: Cesium.VerticalOrigin.CENTER,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        }
+      });
+
+      entity.customData = {
+        militarySymbol: true,
+        source: "unifiedControlPanel",
+        sidc: sidc,
+        icopCode: dropMetadata.icopCode || null,
+        symbolName: dropMetadata.text || null,
+        symbolMetadata: dropMetadata,
+        symbolOptions: dropMetadata.symbolOptions || {},
+        icopEditor: dropMetadata.icopEditor || null,
+        shape: "militarySymbol",
+        displayName: name
+      };
+      entity.description = `<p><b>군대부호:</b> ${sidc}</p><p><b>좌표:</b> ${lng.toFixed(5)}, ${lat.toFixed(5)}</p>`;
+
+      addEntityToListBox(entity, name, lng, lat, "지면 고정");
+      document.dispatchEvent(new CustomEvent("military-symbol-added", {
+        detail: { entity: entity }
+      }));
+      // 드롭 직후에는 선택하지 않는다. 사용자가 지도에서 직접 클릭할 때만 바운딩 박스를 표시한다.
+      currentViewer.selectedEntity = undefined;
+      currentViewer.scene.requestRender();
+      return entity;
+  }
+
+  function startPointPlacement() {
+    const currentViewer=getMultipointViewer();
+    if (!currentViewer || !currentSidc) return;
+    cancelMultipointDrawing(true);
+    const sidc=currentSidc, metadata=currentSymbolMetadata;
+    multipointHandler=new Cesium.ScreenSpaceEventHandler(currentViewer.scene.canvas);
+    multipointHandler.setInputAction(click=>{
+      const position=pickMultipointPosition(currentViewer,click.position);
+      if (!position) { setMultipointStatus("지도 위의 유효한 위치를 클릭하세요."); return; }
+      const entity=placePointSymbol(currentViewer,position,sidc,metadata);
+      if (entity) {
+        stopMultipointHandler(currentViewer);
+        setMultipointStatus(`${entity.name} · 도시 완료`);
+      }
+    },Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    multipointHandler.setInputAction(()=>cancelMultipointDrawing(false),Cesium.ScreenSpaceEventType.RIGHT_CLICK);
+    setMultipointStatus(`${metadata.icopEditor?.name || metadata.text} · 지도 위치를 클릭해 배치하세요 · 우클릭 취소`);
+  }
+
   function setupSymbolDropLogic() {
     const currentViewer = window.CesiumViewer || (typeof viewer !== "undefined" ? viewer : null);
     if (!currentViewer || !currentViewer.scene || !currentViewer.scene.canvas) {
@@ -498,48 +1132,13 @@ window.unifiedControlPanel = (function () {
         return;
       }
 
-      let svg;
+      let dropMetadata=currentSymbolMetadata;
       try {
-        svg = new ms.Symbol(sidc, { size: 60 }).asSVG();
-      } catch (error) {
-        console.error("군대부호 생성 실패:", error);
-        alert("군대부호 이미지를 생성하지 못했습니다.");
-        return;
-      }
-
-      const imageUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-      const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
-      const lng = Cesium.Math.toDegrees(cartographic.longitude);
-      const lat = Cesium.Math.toDegrees(cartographic.latitude);
-      const name = `군대부호 ${entityIdCounter}`;
-      const entity = currentViewer.entities.add({
-        name: name,
-        position: Cesium.Cartesian3.fromDegrees(lng, lat),
-        billboard: {
-          image: imageUrl,
-          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          verticalOrigin: Cesium.VerticalOrigin.CENTER,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY
-        }
-      });
-
-      entity.customData = {
-        militarySymbol: true,
-        source: "unifiedControlPanel",
-        sidc: sidc,
-        shape: "militarySymbol",
-        displayName: name
-      };
-      entity.description = `<p><b>군대부호:</b> ${sidc}</p><p><b>좌표:</b> ${lng.toFixed(5)}, ${lat.toFixed(5)}</p>`;
-
-      addEntityToListBox(entity, name, lng, lat, "지면 고정");
-      document.dispatchEvent(new CustomEvent("military-symbol-added", {
-        detail: { entity: entity }
-      }));
-      // 드롭 직후에는 선택하지 않는다. 사용자가 지도에서 직접 클릭할 때만 바운딩 박스를 표시한다.
-      currentViewer.selectedEntity = undefined;
-      currentViewer.scene.requestRender();
+        const payload=event.dataTransfer?.getData("application/x-webcop-symbol");
+        if (payload) dropMetadata=JSON.parse(payload);
+      } catch(error) { setMultipointStatus("부호 정보를 읽을 수 없습니다."); return; }
+      cancelMultipointDrawing(true);
+      placePointSymbol(currentViewer,cartesian,sidc,dropMetadata);
     };
 
     canvas.addEventListener("dragover", symbolDragOverHandler);
@@ -597,6 +1196,7 @@ window.unifiedControlPanel = (function () {
       name: name,
       lon: lng,
       lat: lat,
+      infoSpan: infoSpan,
       heightSpan: heightSpan,
       checkbox: chk,
       dom: itemDiv
@@ -612,6 +1212,234 @@ window.unifiedControlPanel = (function () {
       return;
     }
     selectAllChk.checked = allChks.every(c => c.checked);
+  }
+
+  function translateCartesian(position, deltaLongitude, deltaLatitude) {
+    if (!position) return position;
+    const cartographic = Cesium.Cartographic.fromCartesian(position);
+    return Cesium.Cartesian3.fromRadians(
+      cartographic.longitude + deltaLongitude,
+      Math.max(-Cesium.Math.PI_OVER_TWO, Math.min(Cesium.Math.PI_OVER_TWO, cartographic.latitude + deltaLatitude)),
+      cartographic.height
+    );
+  }
+
+  function translatePolygonHierarchy(hierarchy, deltaLongitude, deltaLatitude) {
+    if (!hierarchy) return hierarchy;
+    return new Cesium.PolygonHierarchy(
+      (hierarchy.positions || []).map(position => translateCartesian(position, deltaLongitude, deltaLatitude)),
+      (hierarchy.holes || []).map(hole => translatePolygonHierarchy(hole, deltaLongitude, deltaLatitude))
+    );
+  }
+
+  function snapshotMovableGraphics(entity, time) {
+    const snapshot = { entity: entity };
+    if (entity.position) snapshot.position = entity.position.getValue(time);
+    if (entity.polyline?.positions) snapshot.polyline = entity.polyline.positions.getValue(time)?.slice();
+    if (entity.corridor?.positions) snapshot.corridor = entity.corridor.positions.getValue(time)?.slice();
+    if (entity.polygon?.hierarchy) snapshot.polygon = entity.polygon.hierarchy.getValue(time);
+    snapshot.customGeometry = {};
+    ["center", "start", "end", "startPoint", "endPoint"].forEach(key => {
+      const value = entity.customData?.[key];
+      if (value instanceof Cesium.Cartesian3) snapshot.customGeometry[key] = Cesium.Cartesian3.clone(value);
+    });
+    if (Array.isArray(entity.customPoints)) {
+      snapshot.customGeometry.customPoints = entity.customPoints.map(point => Cesium.Cartesian3.clone(point));
+    }
+    ["sizedGeometry", "arcGeometry", "triangleCenter"].forEach(key => {
+      if (entity.customData?.[key]) snapshot.customGeometry[key] = { ...entity.customData[key] };
+    });
+    return snapshot;
+  }
+
+  function applyGraphicTranslation(snapshot, deltaLongitude, deltaLatitude) {
+    const entity = snapshot.entity;
+    if (snapshot.position) entity.position = translateCartesian(snapshot.position, deltaLongitude, deltaLatitude);
+    if (snapshot.polyline) {
+      entity.polyline.positions = snapshot.polyline.map(position => translateCartesian(position, deltaLongitude, deltaLatitude));
+    }
+    if (snapshot.corridor) {
+      entity.corridor.positions = snapshot.corridor.map(position => translateCartesian(position, deltaLongitude, deltaLatitude));
+    }
+    if (snapshot.polygon) {
+      entity.polygon.hierarchy = translatePolygonHierarchy(snapshot.polygon, deltaLongitude, deltaLatitude);
+    }
+    const geometry = snapshot.customGeometry || {};
+    ["center", "start", "end", "startPoint", "endPoint"].forEach(key => {
+      if (geometry[key] && entity.customData) {
+        entity.customData[key] = translateCartesian(geometry[key], deltaLongitude, deltaLatitude);
+      }
+    });
+    if (geometry.customPoints) {
+      entity.customPoints = geometry.customPoints.map(point => translateCartesian(point, deltaLongitude, deltaLatitude));
+    }
+    ["sizedGeometry", "arcGeometry", "triangleCenter"].forEach(key => {
+      if (!geometry[key] || !entity.customData) return;
+      entity.customData[key] = {
+        ...geometry[key],
+        longitude: geometry[key].longitude + Cesium.Math.toDegrees(deltaLongitude),
+        latitude: geometry[key].latitude + Cesium.Math.toDegrees(deltaLatitude)
+      };
+    });
+
+    const editorStyle = entity._areaStyleEditor?.style;
+    if (editorStyle) {
+      const formatPositions = positions => positions.map(position => {
+        const point = Cesium.Cartographic.fromCartesian(position);
+        return `${Cesium.Math.toDegrees(point.longitude).toFixed(6)} ${Cesium.Math.toDegrees(point.latitude).toFixed(6)}`;
+      }).join(", ");
+      if (entity.customPoints?.length) editorStyle.coordinateText = formatPositions(entity.customPoints);
+      if (entity.customData?.start && entity.customData?.end) {
+        editorStyle.coordinateText = formatPositions([entity.customData.start, entity.customData.end]);
+      }
+      if (entity.customData?.startPoint && entity.customData?.endPoint) {
+        editorStyle.coordinateText = formatPositions([entity.customData.startPoint, entity.customData.endPoint]);
+      }
+      if (entity.customData?.center) {
+        const center = Cesium.Cartographic.fromCartesian(entity.customData.center);
+        editorStyle.circleLongitude = Cesium.Math.toDegrees(center.longitude);
+        editorStyle.circleLatitude = Cesium.Math.toDegrees(center.latitude);
+      }
+      if (entity.customData?.sizedGeometry) {
+        editorStyle.rectangleLongitude = entity.customData.sizedGeometry.longitude;
+        editorStyle.rectangleLatitude = entity.customData.sizedGeometry.latitude;
+      }
+      if (entity.customData?.arcGeometry) {
+        editorStyle.arcLongitude = entity.customData.arcGeometry.longitude;
+        editorStyle.arcLatitude = entity.customData.arcGeometry.latitude;
+      }
+      if (entity.customData?.triangleCenter) {
+        editorStyle.triangleLongitude = entity.customData.triangleCenter.longitude;
+        editorStyle.triangleLatitude = entity.customData.triangleCenter.latitude;
+      }
+    }
+  }
+
+  function resolveMovableEntity(currentViewer, pickedEntity) {
+    if (!(pickedEntity instanceof Cesium.Entity)) return null;
+    if (pickedEntity._drawingOwner instanceof Cesium.Entity) return pickedEntity._drawingOwner;
+    if (pickedEntity.customData?.groupEntity instanceof Cesium.Entity) return pickedEntity.customData.groupEntity;
+    if (pickedEntity.parent?.customData?.multipointTacticalGraphic) return pickedEntity.parent;
+    const owner = currentViewer.entities.values.find(candidate =>
+      Array.isArray(candidate.customData?.subEntities) && candidate.customData.subEntities.includes(pickedEntity)
+    );
+    if (owner?.customData?.groupEntity instanceof Cesium.Entity) return owner.customData.groupEntity;
+    if (owner) return owner;
+    return pickedEntity;
+  }
+
+  function collectMovableTargets(currentViewer, root) {
+    const targets = [];
+    const seen = new Set();
+    const add = entity => {
+      if (!(entity instanceof Cesium.Entity) || seen.has(entity.id)) return;
+      seen.add(entity.id);
+      targets.push(entity);
+      (entity.customData?.subEntities || []).forEach(add);
+    };
+    add(root);
+    (root.customData?.groupMembers || []).forEach(add);
+    (root.customData?.renderedEntityIds || []).forEach(id => add(currentViewer.entities.getById(id)));
+    return targets;
+  }
+
+  function restoreCameraInputs(controller, savedInputs) {
+    if (!controller || !savedInputs) return;
+    Object.keys(savedInputs).forEach(key => { controller[key] = savedInputs[key]; });
+  }
+
+  function setupEntityDragLogic() {
+    const currentViewer = window.CesiumViewer || (typeof viewer !== "undefined" ? viewer : null);
+    if (!currentViewer?.scene?.canvas) {
+      setTimeout(setupEntityDragLogic, 500);
+      return;
+    }
+    if (entityDragCanvas === currentViewer.scene.canvas && entityDragHandler && !entityDragHandler.isDestroyed()) return;
+    if (entityDragHandler && !entityDragHandler.isDestroyed()) entityDragHandler.destroy();
+
+    const canvas = currentViewer.scene.canvas;
+    const controller = currentViewer.scene.screenSpaceCameraController;
+    entityDragHandler = new Cesium.ScreenSpaceEventHandler(canvas);
+    entityDragCanvas = canvas;
+
+    entityDragHandler.setInputAction(click => {
+      if (multipointHandler) return;
+      const picked = currentViewer.scene.pick(click.position);
+      const entity = resolveMovableEntity(currentViewer, picked?.id);
+      if (!entity) return;
+      const isDrawingEntity = Boolean(
+        entity.customData?.drawingType ||
+        entity.customData?.isDrawingGroup ||
+        entity._areaStyleEditor ||
+        entity.polygon || entity.polyline || entity.ellipse || entity.rectangle || entity.corridor || entity.box
+      );
+      if (!entityListMap.has(entity) && !entity.customData?.militarySymbol && !isDrawingEntity) return;
+
+      const startPosition = pickMultipointPosition(currentViewer, click.position);
+      if (!startPosition) return;
+      const startCartographic = Cesium.Cartographic.fromCartesian(startPosition);
+      const time = currentViewer.clock?.currentTime || Cesium.JulianDate.now();
+      const targets = collectMovableTargets(currentViewer, entity);
+      const savedInputs = {
+        enableRotate: controller.enableRotate,
+        enableTranslate: controller.enableTranslate,
+        enableTilt: controller.enableTilt,
+        enableLook: controller.enableLook
+      };
+      Object.keys(savedInputs).forEach(key => { controller[key] = false; });
+
+      entityDragState = {
+        entity: entity,
+        startCartographic: startCartographic,
+        snapshots: targets.map(target => snapshotMovableGraphics(target, time)),
+        controlPoints: (entity.customData?.positions || []).map(point => ({ ...point })),
+        savedInputs: savedInputs
+      };
+      canvas.style.cursor = "grabbing";
+    }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+
+    entityDragHandler.setInputAction(movement => {
+      if (!entityDragState) return;
+      const mapPosition = pickMultipointPosition(currentViewer, movement.endPosition);
+      if (!mapPosition) return;
+      const current = Cesium.Cartographic.fromCartesian(mapPosition);
+      const deltaLongitude = current.longitude - entityDragState.startCartographic.longitude;
+      const deltaLatitude = current.latitude - entityDragState.startCartographic.latitude;
+      entityDragState.snapshots.forEach(snapshot => applyGraphicTranslation(snapshot, deltaLongitude, deltaLatitude));
+
+      const entity = entityDragState.entity;
+      if (entityDragState.controlPoints.length) {
+        entity.customData.positions = entityDragState.controlPoints.map(point => ({
+          ...point,
+          lon: point.lon + Cesium.Math.toDegrees(deltaLongitude),
+          lat: point.lat + Cesium.Math.toDegrees(deltaLatitude)
+        }));
+      }
+      const item = entityListMap.get(entity);
+      if (item) {
+        item.lon += Cesium.Math.toDegrees(deltaLongitude) - (item.dragDeltaLongitude || 0);
+        item.lat += Cesium.Math.toDegrees(deltaLatitude) - (item.dragDeltaLatitude || 0);
+        item.dragDeltaLongitude = Cesium.Math.toDegrees(deltaLongitude);
+        item.dragDeltaLatitude = Cesium.Math.toDegrees(deltaLatitude);
+        if (item.infoSpan) item.infoSpan.innerHTML = `<b>${item.name}</b> (${item.lon.toFixed(4)}, ${item.lat.toFixed(4)})`;
+      }
+      currentViewer.scene.requestRender();
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+    const finishDrag = () => {
+      if (!entityDragState) return;
+      const movedEntity = entityDragState.entity;
+      const item = entityListMap.get(movedEntity);
+      if (item) {
+        delete item.dragDeltaLongitude;
+        delete item.dragDeltaLatitude;
+      }
+      restoreCameraInputs(controller, entityDragState.savedInputs);
+      entityDragState = null;
+      canvas.style.cursor = "default";
+      document.dispatchEvent(new CustomEvent("map-entity-moved", { detail: { entity: movedEntity } }));
+    };
+    entityDragHandler.setInputAction(finishDrag, Cesium.ScreenSpaceEventType.LEFT_UP);
   }
 
   // ==========================================
@@ -841,6 +1669,17 @@ window.unifiedControlPanel = (function () {
   // ==========================================
   // 3. 기타 이벤트 및 웨이포인트 로직
   // ==========================================
+  function removeEntityAndRenderedChildren(viewer, entity) {
+    const childIds = entity?.customData?.renderedEntityIds || [];
+    childIds.forEach(id => viewer.entities.removeById(id));
+    viewer.entities.remove(entity);
+  }
+
+  document.addEventListener('military-symbol-removed', event => {
+    const entity=event.detail?.entity, item=entityListMap.get(entity);
+    if (item) { item.dom.remove(); entityListMap.delete(entity); }
+  });
+
   function setupActionButtons() {
     const selectAllChk = document.getElementById("selectAllCheckbox");
     if (selectAllChk) {
@@ -859,7 +1698,7 @@ window.unifiedControlPanel = (function () {
 
       entityListMap.forEach((item, entity) => {
         if (item.checkbox.checked) {
-          viewer.entities.remove(entity);
+          removeEntityAndRenderedChildren(viewer, entity);
           item.dom.remove();
           entityListMap.delete(entity);
         }
@@ -910,10 +1749,26 @@ window.unifiedControlPanel = (function () {
           entityListMap.clear();
 
           entitiesData.forEach(data => {
+            if (data.kind === "multipointTacticalGraphic" && Array.isArray(data.positions)) {
+              const entity = addStaticMultipointGraphic(viewer, data);
+              const first = data.positions[0];
+              if (entity && first) {
+                addEntityToListBox(entity, data.name, first.lon, first.lat, `${data.positions.length}개 지점`);
+              }
+              return;
+            }
             const entity = viewer.entities.add({
               name: data.name,
               position: Cesium.Cartesian3.fromDegrees(data.longitude, data.latitude, data.height)
             });
+            if (data.kind === "militaryPoint" && data.sidc) {
+              const svg=data.symbolMetadata?.renderer === "icop-svg"
+                ? window.IcopSvgRenderer.render(data.symbolMetadata,data.sidc,{size:60,...(data.symbolOptions||{})},data.icopEditor?.values||{})
+                : new ms.Symbol(data.sidc,{size:60,...(data.symbolOptions||{})}).asSVG();
+              entity.billboard=new Cesium.BillboardGraphics({image:"data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg),heightReference:Cesium.HeightReference.CLAMP_TO_GROUND,disableDepthTestDistance:Number.POSITIVE_INFINITY});
+              entity.customData={militarySymbol:true,source:"unifiedControlPanel",displayName:data.name,sidc:data.sidc,symbolOptions:data.symbolOptions||{},icopCode:data.icopCode,symbolMetadata:data.symbolMetadata,icopEditor:data.icopEditor};
+              document.dispatchEvent(new CustomEvent("military-symbol-added",{detail:{entity}}));
+            }
             addEntityToListBox(entity, data.name, data.longitude, data.latitude, `${data.height ? data.height.toFixed(2) : 0} m`);
           });
         };
@@ -922,8 +1777,113 @@ window.unifiedControlPanel = (function () {
     }
   }
 
+  function addStaticMultipointGraphic(viewer, data) {
+    const positions = data.positions
+      .filter(point => Number.isFinite(point.lon) && Number.isFinite(point.lat))
+      .map(point => Cesium.Cartesian3.fromDegrees(point.lon, point.lat, point.height || 0));
+    if (positions.length < (data.sidc ? getMultipointRequirements(data.sidc, data.shape,data.modifiers?.icopValues || {}).min : (data.shape === "area" ? 3 : 2))) return null;
+
+    if (data.sidc) {
+      const exactEntity = renderMilitaryTacticalGraphic(viewer, data.sidc, data.positions, data.name, data.modifiers);
+      if (exactEntity) {
+        exactEntity.customData = {
+          ...(exactEntity.customData || {}),
+          militarySymbol: true,
+          multipointTacticalGraphic: true,
+          source: "unifiedControlPanel",
+          shape: data.shape,
+          displayName: data.name,
+          sidc: data.sidc,
+          symbolMetadata: data.symbolMetadata || null,
+          icopEditor: data.icopEditor || null,
+          modifiers: data.modifiers || null,
+          positions: data.positions
+        };
+        return exactEntity;
+      }
+      console.warn("저장된 전술부호를 복원하지 못했습니다.", data.sidc);
+      return null;
+    }
+
+    const arrowMaterial = typeof Cesium.PolylineArrowMaterialProperty === "function"
+      ? new Cesium.PolylineArrowMaterialProperty(Cesium.Color.RED.withAlpha(0.9))
+      : Cesium.Color.RED.withAlpha(0.9);
+    let graphics;
+    if (data.shape === "area") {
+      graphics = {
+        polygon: {
+          hierarchy: new Cesium.PolygonHierarchy(positions),
+          material: Cesium.Color.RED.withAlpha(0.25),
+          outline: true,
+          outlineColor: Cesium.Color.RED
+        },
+        polyline: {
+          positions: positions.concat([positions[0]]),
+          width: 3,
+          clampToGround: true,
+          material: Cesium.Color.RED
+        }
+      };
+    } else if (data.shape === "axis") {
+      graphics = {
+        corridor: {
+          positions: positions,
+          width: 80,
+          material: Cesium.Color.RED.withAlpha(0.22),
+          outline: true,
+          outlineColor: Cesium.Color.RED
+        },
+        polyline: {
+          positions: positions,
+          width: 7,
+          clampToGround: true,
+          material: arrowMaterial
+        }
+      };
+    } else {
+      graphics = {
+        polyline: {
+          positions: positions,
+          width: 4,
+          clampToGround: true,
+          material: data.shape === "arrow" ? arrowMaterial : Cesium.Color.YELLOW.withAlpha(0.9)
+        }
+      };
+    }
+
+    const entity = viewer.entities.add({ name: data.name, ...graphics });
+    entity.customData = {
+      militarySymbol: true,
+      multipointTacticalGraphic: true,
+      source: "unifiedControlPanel",
+      shape: data.shape,
+      displayName: data.name,
+      sidc: data.sidc || null,
+      symbolMetadata: data.symbolMetadata || null,
+          icopEditor: data.icopEditor || null,
+      positions: data.positions
+    };
+    document.dispatchEvent(new CustomEvent("military-symbol-added", { detail: { entity: entity } }));
+    document.dispatchEvent(new CustomEvent("multipoint-tactical-graphic-added", { detail: { entity: entity } }));
+    return entity;
+  }
+
   function serializeEntities(viewer) {
-    return viewer.entities.values.map(entity => {
+    return viewer.entities.values
+    .filter(entity => !entity.parent?.customData?.multipointTacticalGraphic)
+    .map(entity => {
+      if (entity.customData?.multipointTacticalGraphic) {
+        return {
+          kind: "multipointTacticalGraphic",
+          name: entity.name || entity.customData.displayName || "전술도형",
+          shape: entity.customData.shape,
+          sidc: entity.customData.sidc || null,
+          symbolMetadata: entity.customData.symbolMetadata || null,
+          icopEditor: entity.customData.icopEditor || null,
+          modifiers: entity.customData.modifiers || null,
+          positions: entity.customData.positions
+        };
+      }
       const carto = Cesium.Cartographic.fromCartesian(
         entity.position?.getValue(viewer.clock.currentTime) || Cesium.Cartesian3.ZERO
       );
@@ -931,7 +1891,14 @@ window.unifiedControlPanel = (function () {
         name: entity.name || "",
         longitude: Cesium.Math.toDegrees(carto.longitude),
         latitude: Cesium.Math.toDegrees(carto.latitude),
-        height: carto.height
+        height: carto.height,
+        ...(entity.billboard && entity.customData?.militarySymbol ? {
+          kind:"militaryPoint", sidc:entity.customData.sidc,
+          symbolOptions:entity.customData.symbolOptions || {},
+          icopCode:entity.customData.icopCode || null,
+          symbolMetadata:entity.customData.symbolMetadata || null,
+          icopEditor:entity.customData.icopEditor || null
+        } : {})
       };
     });
   }
@@ -1074,6 +2041,7 @@ window.unifiedControlPanel = (function () {
     createUnifiedUI();
     initSymbolLogic();
     initSampleLogic();
+    setupEntityDragLogic();
     isInitialized = true;
   }
 
@@ -1115,7 +2083,26 @@ window.unifiedControlPanel = (function () {
     toggle: toggleUI,
     toggleControl: toggleUI,
     toggleMilitary: toggleMilitaryUI,
-    openMilitary: () => toggleMilitaryUI(true)
+    openMilitary: () => toggleMilitaryUI(true),
+    previewTactical(metadata, entity, state, sidc) {
+      const points = entity?.customData?.positions || tacticalPreviewCoordinates(sidc,metadata.geometry,state.values);
+      return renderMilitaryTacticalGraphic(getMultipointViewer(), sidc, points, state.name,
+        {...(entity?.customData?.modifiers || {}), icopValues:state.values}, true);
+    },
+    updateTacticalEntity(entity, state, sidc) {
+      const currentViewer=getMultipointViewer();
+      const modifiers={...(entity.customData.modifiers || {}), icopValues:state.values};
+      const rendered=renderMilitaryTacticalGraphic(currentViewer,sidc,entity.customData.positions,state.name,modifiers);
+      if (!rendered) return false;
+      for (const id of entity.customData.renderedEntityIds || []) currentViewer.entities.removeById(id);
+      for (const key of ["polyline","polygon","corridor","label"]) entity[key]=undefined;
+      for (const id of rendered.customData.renderedEntityIds) {
+        const child=currentViewer.entities.getById(id);if(child)child.parent=entity;
+      }
+      entity.customData={...entity.customData,...rendered.customData,modifiers,icopEditor:state};
+      currentViewer.entities.remove(rendered);
+      return true;
+    }
   };
 })();
 

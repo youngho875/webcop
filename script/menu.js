@@ -23,14 +23,60 @@
             flex-direction: row;
             gap: 12px;        
             align-items: center;
-            flex-wrap: nowrap;
+            flex-wrap: wrap;
+            justify-content: center;
             border-radius: 30px; 
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            z-index: 1000;
+            z-index: 20000;
             cursor: move; 
             user-select: none;
             box-sizing: border-box;
+        }
+
+        #menu.menu-vertical {
+            flex-direction: column;
+            flex-wrap: nowrap;
+            justify-content: flex-start;
+            align-items: center;
+            align-content: center;
+            gap: clamp(4px, calc((100vh - 580px) / 14), 12px);
+            width: 62px;
+            max-width: 62px;
+            max-height: calc(100vh - 16px);
+            padding: 12px;
+            border-radius: 30px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: none;
+            overscroll-behavior: contain;
+        }
+        #menu.menu-vertical > .icon-btn,
+        #menu.menu-vertical > .dropdown-wrapper { flex: 0 0 auto; }
+        #menu.menu-vertical::-webkit-scrollbar { display: none; }
+        #menu.menu-vertical .dropdown-content {
+            left: 48px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .dropdown-content.viewport-dropdown-detached {
+            position: fixed;
+            transform: none;
+            z-index: 20010;
+        }
+        #menu.menu-vertical .icon-btn::after {
+            left: 48px;
+            top: 50%;
+            transform: translateY(-50%) scale(.8);
+        }
+        #menu.menu-vertical .icon-btn::before { display: none; }
+        #menu.menu-vertical .icon-btn:hover::after {
+            transform: translateY(-50%) scale(1);
+        }
+        @media (max-height: 640px) {
+            #menu.menu-vertical { gap: 4px; padding: 8px 12px; }
+            #menu.menu-vertical .icon-btn,
+            #menu.menu-vertical .drop-trigger { width: 32px; height: 32px; }
         }
 
         /* 🟢 이미지 형태의 아이콘 버튼 공통 스타일 */
@@ -253,6 +299,117 @@
     menu.id = 'menu';
     document.body.appendChild(menu);
 
+    const MENU_ORIENTATION_KEY = 'webcop-main-menu-orientation';
+    const MENU_GAP = 8;
+
+    function visibleElement(element) {
+        if (!element || !element.isConnected) return false;
+        // 접힌 레이어관리 바는 지도 영역을 차지하지 않는 숨김 상태로 본다.
+        if (element.matches('.layer-dialog-container.layer-dock-collapsed')) return false;
+        const computed = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return computed.display !== 'none' && computed.visibility !== 'hidden' &&
+            Number(computed.opacity) !== 0 && rect.width > 0 && rect.height > 0;
+    }
+
+    function getMenuBounds() {
+        let left = MENU_GAP;
+        let right = window.innerWidth - MENU_GAP;
+        document.querySelectorAll('.layer-dialog-container.layer-docked-left').forEach(element => {
+            if (visibleElement(element)) left = Math.max(left, element.getBoundingClientRect().right + MENU_GAP);
+        });
+        document.querySelectorAll('.layer-dialog-container.layer-docked-right').forEach(element => {
+            if (visibleElement(element)) right = Math.min(right, element.getBoundingClientRect().left - MENU_GAP);
+        });
+        return { left, right, top: MENU_GAP, bottom: window.innerHeight - MENU_GAP };
+    }
+
+    function placeMenuInsideAvailableArea(preferredLeft, preferredTop) {
+        if (isDragging) return;
+        const bounds = getMenuBounds();
+        const availableWidth = Math.max(62, bounds.right - bounds.left);
+        menu.style.maxWidth = menu.classList.contains('menu-vertical') ? '62px' : `${availableWidth}px`;
+        const width = Math.min(menu.offsetWidth, availableWidth);
+        const height = Math.min(menu.offsetHeight, bounds.bottom - bounds.top);
+        const left = Math.max(bounds.left, Math.min(preferredLeft, bounds.right - width));
+        const top = Math.max(bounds.top, Math.min(preferredTop, bounds.bottom - height));
+        menu.style.transform = 'none';
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    }
+
+    function centerMenuInAvailableArea() {
+        if (isDragging) return;
+        const bounds = getMenuBounds();
+        const availableWidth = Math.max(62, bounds.right - bounds.left);
+        menu.style.maxWidth = menu.classList.contains('menu-vertical') ? '62px' : `${availableWidth}px`;
+
+        // 레이어관리가 왼쪽에 있으면 (레이어관리 오른쪽 ~ 화면 오른쪽),
+        // 오른쪽에 있으면 (화면 왼쪽 ~ 레이어관리 왼쪽)의 중앙을 사용한다.
+        const width = Math.min(menu.offsetWidth, availableWidth);
+        const height = Math.min(menu.offsetHeight, bounds.bottom - bounds.top);
+        const left = bounds.left + Math.max(0, (availableWidth - width) / 2);
+        const currentTop = Number.parseFloat(menu.style.top);
+        const preferredTop = Number.isFinite(currentTop) ? currentTop : 15;
+        const top = Math.max(bounds.top, Math.min(preferredTop, bounds.bottom - height));
+
+        menu.style.transform = 'none';
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    }
+
+    function alignVerticalMenuToSide() {
+        if (isDragging) return;
+        const bounds = getMenuBounds();
+        menu.style.maxWidth = '62px';
+        const width = Math.min(menu.offsetWidth, Math.max(62, bounds.right - bounds.left));
+        const height = Math.min(menu.offsetHeight, bounds.bottom - bounds.top);
+        const side = menu.dataset.verticalSide ||
+            (menu.getBoundingClientRect().left + menu.offsetWidth / 2 <= window.innerWidth / 2 ? 'left' : 'right');
+        const left = side === 'right' ? bounds.right - width : bounds.left;
+        const top = bounds.top + Math.max(0, (bounds.bottom - bounds.top - height) / 2);
+        menu.style.transform = 'none';
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    }
+
+    function alignMenuForCurrentLayout() {
+        if (menu.classList.contains('menu-vertical')) alignVerticalMenuToSide();
+        else centerMenuInAvailableArea();
+    }
+
+    function refreshMenuPosition() {
+        if (isDragging) return;
+        const rect = menu.getBoundingClientRect();
+        placeMenuInsideAvailableArea(rect.left, rect.top);
+    }
+
+    function setMenuOrientation(orientation, persist = true) {
+        const next = orientation === 'vertical' ? 'vertical' : 'horizontal';
+        const rect = menu.getBoundingClientRect();
+        if (next === 'vertical') {
+            menu.dataset.verticalSide = rect.left + rect.width / 2 <= window.innerWidth / 2 ? 'left' : 'right';
+        }
+        menu.classList.toggle('menu-vertical', next === 'vertical');
+        menu.dataset.orientation = next;
+        if (persist) localStorage.setItem(MENU_ORIENTATION_KEY, next);
+        requestAnimationFrame(() => {
+            if (next === 'vertical') alignVerticalMenuToSide();
+            else centerMenuInAvailableArea();
+            globalThis.DialogBelowMainMenu?.refresh?.();
+        });
+        document.dispatchEvent(new CustomEvent('main-menu-orientation-changed', { detail: { orientation: next } }));
+    }
+
+    window.MainMenuLayout = {
+        element: menu,
+        getOrientation: () => menu.dataset.orientation || 'horizontal',
+        setOrientation: setMenuOrientation,
+        refresh: refreshMenuPosition,
+        center: alignMenuForCurrentLayout
+    };
+    setMenuOrientation(localStorage.getItem(MENU_ORIENTATION_KEY) || 'horizontal', false);
+
     function installDialogBelowMainMenu() {
         const selector = [
             'dialog', '[role="dialog"]',
@@ -261,6 +418,8 @@
         ].join(',');
         const excluded = '#menu,.dropdown-content,.layer-context-menu,[class*="context-menu" i],.td-map-editor,.drawing-multi-selection-box';
         let scheduled = false;
+        let dialogDragActive = false;
+        let correctionPendingAfterDrag = false;
 
         function isTopLevelDialog(element) {
             if (!(element instanceof HTMLElement) || !element.matches(selector) || element.matches(excluded) || element.dataset.allowMenuOverlap === 'true') return false;
@@ -271,13 +430,12 @@
             if (!isTopLevelDialog(element)) return;
             const computed = getComputedStyle(element);
             if (computed.display === 'none' || computed.visibility === 'hidden' || !['fixed', 'absolute'].includes(computed.position)) return;
-            const menuBottom = menu.getBoundingClientRect().bottom + 8;
-            const rect = element.getBoundingClientRect();
-            if (!rect.width || !rect.height || rect.top >= menuBottom) return;
-            const currentTop = Number.parseFloat(computed.top);
-            const nextTop = (Number.isFinite(currentTop) ? currentTop : rect.top) + (menuBottom - rect.top);
-            element.style.top = `${Math.max(menuBottom, nextTop)}px`;
-            if (computed.bottom !== 'auto') element.style.bottom = 'auto';
+            // 위치는 보정하지 않는다. 다이얼로그는 메뉴 영역을 자유롭게
+            // 통과할 수 있고, 겹칠 때 표시 계층만 메인 메뉴 아래로 둔다.
+            const zIndex = Number.parseInt(computed.zIndex, 10);
+            if (Number.isFinite(zIndex) && zIndex >= 20000) {
+                element.style.setProperty('z-index', '19990', 'important');
+            }
         }
 
         function clampAllDialogs() {
@@ -286,10 +444,22 @@
         }
 
         function scheduleClamp() {
+            if (dialogDragActive) {
+                correctionPendingAfterDrag = true;
+                return;
+            }
             if (scheduled) return;
             scheduled = true;
             requestAnimationFrame(clampAllDialogs);
         }
+
+        document.addEventListener('dialog-drag-state-changed', event => {
+            dialogDragActive = Boolean(event.detail?.active);
+            if (!dialogDragActive && correctionPendingAfterDrag) {
+                correctionPendingAfterDrag = false;
+                scheduleClamp();
+            }
+        });
 
         new MutationObserver(scheduleClamp).observe(document.body, {
             childList: true, subtree: true, attributes: true,
@@ -326,7 +496,10 @@
         let selectedDrawing = null;
 
         function resolveDrawing(entity) {
-            const candidate = entity?._lineOwner || entity?._drawingOwner || entity;
+            let candidate = entity?._lineOwner || entity?._drawingOwner || entity;
+            if (candidate?.parent?.customData?.multipointTacticalGraphic) candidate = candidate.parent;
+            const owner = candidate && viewer.entities.values.find(item => item.customData?.renderedEntityIds?.includes(candidate.id));
+            if (owner) candidate = owner;
             const group = candidate?.customData?.groupEntity;
             if (group && viewer.entities.contains(group)) return group;
             return candidate?.customData?.drawingType || candidate?.customData?.militarySymbol || candidate?.customData?.source === 'unifiedControlPanel' ? candidate : null;
@@ -336,7 +509,30 @@
             box.style.display = 'none';
         }
 
-        function geometryScreenBounds(entity, read) {
+        function geometryScreenBounds(entity, read, seen = new Set()) {
+            if (!entity || entity.show === false || seen.has(entity)) return null;
+            seen.add(entity);
+            const children = [...(entity.customData?.groupMembers || []), ...(entity.customData?.subEntities || []),
+                ...(entity.customData?.renderedEntityIds || []).map(id => viewer.entities.getById(id))];
+            const bounds = children.map(child => geometryScreenBounds(child,read,seen)).filter(Boolean);
+            if (bounds.length) return bounds.reduce((a,b)=>({left:Math.min(a.left,b.left),top:Math.min(a.top,b.top),right:Math.max(a.right,b.right),bottom:Math.max(a.bottom,b.bottom)}));
+            if (entity.billboard || entity.label || entity.point) {
+                const position = read(entity.position);
+                const center = window.MilitarySymbolRender?.getScreenPosition?.(entity) || (position && Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene,position));
+                if (!center) return null;
+                const graphic = entity.billboard || entity.label || entity.point;
+                const scale = Number(read(graphic.scale)) || 1;
+                const text = String(read(entity.label?.text) || '');
+                const fontSize = parseInt(read(entity.label?.font),10) || 12;
+                const saved = entity.customData?.billboardScreenSize;
+                const width = Number(saved?.width) || (Number(read(graphic.width)) || (entity.label ? Math.max(12,text.length*fontSize) : Number(read(graphic.pixelSize)) || 60))*scale;
+                const height = Number(saved?.height) || (Number(read(graphic.height)) || (entity.label ? fontSize*1.5 : Number(read(graphic.pixelSize)) || 60))*scale;
+                const offset = read(graphic.pixelOffset) || {x:0,y:0};
+                const angle = Number(read(graphic.rotation)) || 0;
+                const w = Math.abs(width*Math.cos(angle))+Math.abs(height*Math.sin(angle));
+                const h = Math.abs(width*Math.sin(angle))+Math.abs(height*Math.cos(angle));
+                return {left:center.x+offset.x-w/2,top:center.y+offset.y-h/2,right:center.x+offset.x+w/2,bottom:center.y+offset.y+h/2};
+            }
             let positions = [];
             const hierarchy = entity.polygon ? read(entity.polygon.hierarchy) : null;
             if (Array.isArray(hierarchy)) positions = hierarchy;
@@ -364,7 +560,12 @@
             }), { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity });
         }
 
-        function showBox(bounds, padding = 2) {
+        globalThis.MilitarySelectionBounds = {
+            resolve: resolveDrawing,
+            get(entity) { const time=viewer.clock.currentTime; return geometryScreenBounds(entity,p=>p?.getValue?p.getValue(time):p); }
+        };
+
+        function showBox(bounds, padding = 4) {
             box.style.display = 'block';
             box.style.left = `${bounds.left - padding}px`;
             box.style.top = `${bounds.top - padding}px`;
@@ -376,22 +577,6 @@
             if (!selectedDrawing || !viewer.entities.contains(selectedDrawing) || selectedDrawing.show === false) return hideBox();
             const time = viewer.clock.currentTime;
             const read = property => property?.getValue ? property.getValue(time) : property;
-            if ((selectedDrawing.customData?.militarySymbol || selectedDrawing.customData?.source === 'unifiedControlPanel') && selectedDrawing.billboard) {
-                const position = read(selectedDrawing.position);
-                const center = Cesium.defined(position) ? Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, position) : null;
-                if (!Cesium.defined(center)) return hideBox();
-                const scale = Number(read(selectedDrawing.billboard.scale)) || 1;
-                const savedSize = selectedDrawing.customData?.billboardScreenSize;
-                const width = Math.max(36, Number(savedSize?.width) || (Number(read(selectedDrawing.billboard.width)) || 60) * scale);
-                const height = Math.max(36, Number(savedSize?.height) || (Number(read(selectedDrawing.billboard.height)) || 60) * scale);
-                const padding = 2;
-                box.style.display = 'block';
-                box.style.left = `${center.x - width / 2 - padding}px`;
-                box.style.top = `${center.y - height / 2 - padding}px`;
-                box.style.width = `${width + padding * 2}px`;
-                box.style.height = `${height + padding * 2}px`;
-                return;
-            }
             const geometryBounds = geometryScreenBounds(selectedDrawing, read);
             if (geometryBounds) return showBox(geometryBounds);
             const state = viewer.dataSourceDisplay.getBoundingSphere(selectedDrawing, false, sphere);
@@ -411,7 +596,10 @@
 
         viewer.selectedEntityChanged.addEventListener(entity => {
             selectedDrawing = resolveDrawing(entity);
-            updateBox();
+            // Newly added entities acquire geometry updaters during the next scene update.
+            // preRender below refreshes the bounds after that update has completed.
+            hideBox();
+            viewer.scene.requestRender();
             const militarySelected = selectedDrawing && (selectedDrawing.customData?.militarySymbol || selectedDrawing.customData?.source === 'unifiedControlPanel');
             viewer.container.classList.toggle('drawing-bounds-selected', Boolean(selectedDrawing));
             if (militarySelected) {
@@ -430,18 +618,7 @@
             const picked = viewer.scene.pick(event.position);
             const drawing = resolveDrawing(picked?.id);
             if (drawing) {
-                const wasAlreadySelected = viewer.selectedEntity === drawing;
                 viewer.selectedEntity = drawing;
-                if (drawing.customData?.drawingType === 'line') window.lineDrawing?.editEntity?.(drawing);
-                if (wasAlreadySelected && drawing._areaStyleEditor && window.AreaStylePanel?.edit) {
-                    const editor = drawing._areaStyleEditor;
-                    window.AreaStylePanel.edit(editor.title, editor.style, () => {
-                        const nextStyle = window.AreaStylePanel.getStyle();
-                        editor.style = { ...nextStyle };
-                        editor.applyCallback(nextStyle);
-                        viewer.scene.requestRender();
-                    });
-                }
             }
             else if (!picked?.id) viewer.selectedEntity = undefined;
         }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -472,7 +649,544 @@
         }
     });
 
-// ⭐ 즐겨찾기 (드롭다운 아이콘)
+    createIconButton('🎨 군대부호', 'military-tech', () => {
+        if (window.militarySymbolDialog && typeof window.militarySymbolDialog.toggle === 'function') {
+            window.militarySymbolDialog.toggle();
+        } else if (window.unifiedControlPanel && typeof window.unifiedControlPanel.toggleMilitary === 'function') {
+            window.unifiedControlPanel.toggleMilitary();
+        } else if (typeof window.openSymbolPopup === 'function') {
+            window.openSymbolPopup();
+        } else {
+            console.warn("군대부호 다이얼로그 스크립트가 로드되지 않았습니다.");
+        }
+    });
+    
+    // 단독 실행형 아이콘 버튼 생성 함수
+    function createIconButton(tooltipText, iconName, clickCallback, customClass = '') {
+        const btn = document.createElement('button');
+        btn.className = `icon-btn ${customClass}`;
+        btn.setAttribute('data-tooltip', tooltipText);
+
+        const img = document.createElement('img');
+        img.src = `img/${iconName}.png`;
+        btn.appendChild(img);
+
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            clickCallback(e);
+        });
+
+        menu.appendChild(btn);
+        return btn;
+    }
+
+    // 투명도 그리기 객체 생성 기록 기반 Undo / Redo
+    const undoStack = [];
+    const redoStack = [];
+    const historyRecordedEntities = new WeakSet();
+    let replayingHistory = false;
+
+    function historyEntities(entity) {
+        return [entity, ...(entity?.customData?.subEntities || [])].filter(Boolean);
+    }
+
+    function refreshHistoryButtons() {
+        if (!undoButton || !redoButton) return;
+        undoButton.disabled = undoStack.length === 0;
+        redoButton.disabled = redoStack.length === 0;
+        undoButton.style.opacity = undoButton.disabled ? '.35' : '1';
+        redoButton.style.opacity = redoButton.disabled ? '.35' : '1';
+    }
+
+    function undoDrawing() {
+        const command = undoStack.pop();
+        if (!command) return;
+        replayingHistory = true;
+        if (viewer.selectedEntity === command.entity) viewer.selectedEntity = undefined;
+        command.entities.forEach(entity => viewer.entities.remove(entity));
+        replayingHistory = false;
+        redoStack.push(command);
+        refreshHistoryButtons();
+        viewer.scene.requestRender();
+    }
+
+    function redoDrawing() {
+        const command = redoStack.pop();
+        if (!command) return;
+        replayingHistory = true;
+        command.entities.forEach(entity => { if (!viewer.entities.contains(entity)) viewer.entities.add(entity); });
+        document.dispatchEvent(new CustomEvent('drawing-entity-added', { detail: { entity: command.entity } }));
+        replayingHistory = false;
+        undoStack.push(command);
+        refreshHistoryButtons();
+        viewer.scene.requestRender();
+    }
+
+    function clearDrawingHistory() {
+        undoStack.length = 0;
+        redoStack.length = 0;
+        refreshHistoryButtons();
+    }
+
+    document.addEventListener('drawing-entity-added', event => {
+        const entity = event.detail?.entity;
+        if (replayingHistory || !entity?.customData?.drawingType || entity.customData.isDrawingGroup || historyRecordedEntities.has(entity)) return;
+        historyRecordedEntities.add(entity);
+        undoStack.push({ entity, entities: historyEntities(entity) });
+        redoStack.length = 0;
+        refreshHistoryButtons();
+    });
+
+    function createHistoryButton(imagePath, tooltip, action) {
+        const button = document.createElement('button');
+        button.className = 'icon-btn';
+        button.type = 'button';
+        button.setAttribute('data-tooltip', tooltip);
+        const image = document.createElement('img');
+        image.src = imagePath;
+        image.alt = tooltip;
+        button.appendChild(image);
+        button.addEventListener('click', event => { event.stopPropagation(); action(); });
+        menu.appendChild(button);
+        return button;
+    }
+
+    const undoButton = createHistoryButton('/img/Left.png', '실행 취소 (Ctrl+Z)', undoDrawing);
+    const redoButton = createHistoryButton('/img/Right.png', '다시 실행 (Ctrl+R)', redoDrawing);
+    homeButton.after(undoButton, redoButton);
+    refreshHistoryButtons();
+
+    document.addEventListener('keydown', event => {
+        if (!event.ctrlKey || event.altKey) return;
+        if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+        const key = event.key.toLowerCase();
+        if (key === 'z') {
+            event.preventDefault();
+            undoDrawing();
+        } else if (key === 'r') {
+            event.preventDefault();
+            redoDrawing();
+        }
+    });
+
+    // 💡 헬퍼 2: 마우스 지연 반응 타이머 기반 드롭다운 생성 함수
+    function createDropdownIconButton(tooltipText, iconName) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'dropdown-wrapper';
+
+        const triggerBtn = document.createElement('button');
+        triggerBtn.className = 'drop-trigger';
+        triggerBtn.setAttribute('title', tooltipText); 
+
+        const img = document.createElement('img');
+        //img.src = `https://api.iconify.design/material-symbols:${iconName}-rounded.svg`;
+        img.src = `img/${iconName}.png`;
+        triggerBtn.appendChild(img);
+        wrapper.appendChild(triggerBtn);
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'dropdown-content';
+        wrapper.appendChild(contentDiv);
+
+        let closeTimer = null;
+
+        const restoreDropdown = () => {
+            if (contentDiv.parentElement !== wrapper) wrapper.appendChild(contentDiv);
+            contentDiv.classList.remove('viewport-dropdown-detached');
+            contentDiv.style.position = '';
+            contentDiv.style.left = '';
+            contentDiv.style.top = '';
+            contentDiv.style.transform = '';
+            contentDiv.style.zIndex = '';
+            contentDiv.style.maxWidth = '';
+            contentDiv.style.maxHeight = '';
+            contentDiv.style.overflowY = '';
+        };
+
+        const positionDropdownInsideViewport = () => {
+            const triggerRect = wrapper.getBoundingClientRect();
+            const viewport = window.visualViewport;
+            const viewportLeft = viewport ? viewport.offsetLeft : 0;
+            const viewportTop = viewport ? viewport.offsetTop : 0;
+            const viewportRight = viewportLeft + (viewport ? viewport.width : window.innerWidth);
+            const viewportBottom = viewportTop + (viewport ? viewport.height : window.innerHeight);
+            const gap = 8;
+            if (contentDiv.parentElement !== document.body) document.body.appendChild(contentDiv);
+            contentDiv.classList.add('viewport-dropdown-detached');
+            contentDiv.style.display = 'block';
+            contentDiv.style.maxWidth = `${Math.max(180, viewportRight - viewportLeft - gap * 2)}px`;
+            contentDiv.style.maxHeight = `${Math.max(80, viewportBottom - viewportTop - gap * 2)}px`;
+            contentDiv.style.overflowY = 'auto';
+            const contentRect = contentDiv.getBoundingClientRect();
+            const width = Math.min(contentRect.width, viewportRight - viewportLeft - gap * 2);
+            const height = Math.min(contentRect.height, viewportBottom - viewportTop - gap * 2);
+            const spaceRight = viewportRight - triggerRect.right;
+            const spaceLeft = triggerRect.left - viewportLeft;
+            const verticalMenu = menu.classList.contains('menu-vertical');
+            const naturalLeft = triggerRect.left + (triggerRect.width - width) / 2;
+            let left;
+            let top;
+
+            if (verticalMenu || naturalLeft + width > viewportRight - gap) {
+                if (spaceRight >= width + gap || spaceRight >= spaceLeft) {
+                    left = triggerRect.right + gap;
+                } else {
+                    left = triggerRect.left - width - gap;
+                }
+                top = triggerRect.top + (triggerRect.height - height) / 2;
+            } else if (naturalLeft < viewportLeft + gap) {
+                left = triggerRect.right + gap;
+                top = triggerRect.top + (triggerRect.height - height) / 2;
+            } else {
+                left = naturalLeft;
+                top = triggerRect.bottom + gap;
+                if (top + height > viewportBottom - gap) top = triggerRect.top - height - gap;
+            }
+
+            left = Math.max(viewportLeft + gap, Math.min(left, viewportRight - width - gap));
+            top = Math.max(viewportTop + gap, Math.min(top, viewportBottom - height - gap));
+            contentDiv.style.left = `${left}px`;
+            contentDiv.style.top = `${top}px`;
+        };
+
+        const showMenu = () => {
+            if (closeTimer) {
+                clearTimeout(closeTimer);
+                closeTimer = null;
+            }
+            contentDiv.style.display = 'block';
+            positionDropdownInsideViewport();
+        };
+
+        const hideMenuDeferred = () => {
+            if (!closeTimer) {
+                closeTimer = setTimeout(() => {
+                    contentDiv.style.display = 'none';
+                    restoreDropdown();
+                }, 200); 
+            }
+        };
+
+        wrapper.addEventListener('mouseenter', showMenu);
+        wrapper.addEventListener('mouseleave', hideMenuDeferred);
+        contentDiv.addEventListener('mouseenter', showMenu);
+        contentDiv.addEventListener('mouseleave', hideMenuDeferred);
+        menu.addEventListener('scroll', () => {
+            if (contentDiv.classList.contains('viewport-dropdown-detached')) positionDropdownInsideViewport();
+        }, { passive: true });
+        document.addEventListener('main-menu-orientation-changed', () => {
+            if (closeTimer) clearTimeout(closeTimer);
+            closeTimer = null;
+            contentDiv.style.display = 'none';
+            restoreDropdown();
+        });
+        window.addEventListener('resize', () => {
+            if (contentDiv.classList.contains('viewport-dropdown-detached')) positionDropdownInsideViewport();
+        });
+
+        menu.appendChild(wrapper);
+        return contentDiv; 
+    }
+
+
+    // ==========================================
+    // ⚙️ 버튼 및 드롭다운 아이콘 셋 정의
+    // ==========================================
+
+    // createIconButton('🖼️ 빌보드 핀 배치', 'pin-drop', () => {
+    //     if (window.billboard) {
+    //         const dialog = document.getElementById('billboard-dialog');
+            
+    //         // 1. 다이얼로그가 숨겨져 있다면 먼저 화면에 표시합니다.
+    //         if (dialog && getComputedStyle(dialog).display === 'none') {
+    //             window.billboard.showUI();
+    //         }
+            
+    //         // 2. UI에 입력된 위경도/이미지 설정값으로 빌보드를 생성(또는 토글)합니다.
+    //         if (typeof window.billboard.createBillboardFromUI === 'function') {
+    //             window.billboard.createBillboardFromUI();
+    //         }
+    //     } else {
+    //         console.warn("billboard 모듈이 로드되지 않았습니다.");
+    //     }
+    // });
+
+
+    // 3. 👁 보기 (스케일바 / 상태바 표시 전환)
+    const viewDropContent = createDropdownIconButton('👁 보기', 'View-In-Ar');
+
+    function createViewAction(labelText, action) {
+        const link = document.createElement('a');
+        link.href = '#';
+        link.textContent = labelText;
+        link.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            action();
+        });
+        viewDropContent.appendChild(link);
+        return link;
+    }
+
+    // 보기 메뉴의 첫 항목
+    createViewAction('빌보드 배치', () => {
+        const dialog = document.getElementById('billboard-dialog');
+        if (dialog) {
+            const isHidden = getComputedStyle(dialog).display === 'none';
+            dialog.style.display = isHidden ? 'block' : 'none';
+        } else if (window.billboard && typeof window.billboard.createBillboardFromUI === 'function') {
+            window.billboard.createBillboardFromUI();
+        }
+    });
+
+    function createViewCheckbox(labelText, checked, onChange) {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        const text = document.createElement('span');
+        checkbox.type = 'checkbox';
+        checkbox.checked = checked;
+        text.textContent = labelText;
+        label.append(checkbox, text);
+        viewDropContent.appendChild(label);
+        checkbox.addEventListener('change', () => onChange(checkbox.checked));
+        return checkbox;
+    }
+
+    const compassCheckbox = createViewCheckbox('나침반', true, checked => {
+        const compass = document.getElementById('compass');
+        const visible = compass ? getComputedStyle(compass).display !== 'none' : !checked;
+        if (visible !== checked && typeof toggleCompass === 'function') toggleCompass();
+    });
+    const syncCompassCheckbox = () => {
+        const compass = document.getElementById('compass');
+        if (compass) compassCheckbox.checked = getComputedStyle(compass).display !== 'none';
+    };
+    window.addEventListener('load', syncCompassCheckbox, { once: true });
+    setTimeout(syncCompassCheckbox, 0);
+
+    // mapDraw.ModelDraw()의 초기값이 숨김이므로 체크 해제 상태로 시작한다.
+    createViewCheckbox('3D 모델 ON/OFF', false, () => {
+        window.mapDrawing?.toggleTilesetVisibility?.();
+    });
+
+    function createVisibilityToggle(labelText, controlName, changeEventName) {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        const text = document.createElement('span');
+        checkbox.type = 'checkbox';
+        checkbox.checked = true;
+        text.textContent = labelText;
+        label.append(checkbox, text);
+        viewDropContent.appendChild(label);
+
+        const sync = () => {
+            const control = window[controlName];
+            checkbox.checked = control ? control.isVisible() : false;
+            checkbox.disabled = !control;
+        };
+        checkbox.addEventListener('change', () => {
+            window[controlName]?.setVisible(checkbox.checked);
+        });
+        document.addEventListener(changeEventName, sync);
+        window.addEventListener('load', sync, { once: true });
+        setTimeout(sync, 0);
+        return checkbox;
+    }
+
+    createVisibilityToggle('스케일바', 'ScaleBarControl', 'scalebar-visibility-changed');
+    createVisibilityToggle('Status Bar', 'StatusBarControl', 'statusbar-visibility-changed');
+
+    // GPS 장비 데이터 수신 방식 선택
+    const gpsReceiveGroup = document.createElement('details');
+    gpsReceiveGroup.className = 'draw-menu-group';
+    const gpsReceiveSummary = document.createElement('summary');
+    gpsReceiveSummary.textContent = 'GPS 장비 수신';
+    const gpsReceiveSubmenu = document.createElement('div');
+    gpsReceiveSubmenu.className = 'draw-submenu';
+    gpsReceiveGroup.append(gpsReceiveSummary, gpsReceiveSubmenu);
+    viewDropContent.appendChild(gpsReceiveGroup);
+
+    [
+        ['websocket', 'WebSocket'],
+        ['mqtt', 'MQTT'],
+        ['both', 'WebSocket + MQTT'],
+        ['off', '수신 화면 끄기']
+    ].forEach(([value, text]) => {
+        const label = document.createElement('label');
+        const radio = document.createElement('input');
+        const caption = document.createElement('span');
+        radio.type = 'radio';
+        radio.name = 'gps-receive-mode';
+        radio.value = value;
+        radio.checked = window.realtimeGps?.getMode?.() === value;
+        caption.textContent = text;
+        label.append(radio, caption);
+        gpsReceiveSubmenu.appendChild(label);
+        radio.addEventListener('change', () => {
+            if (radio.checked) window.realtimeGps?.setMode?.(value);
+        });
+    });
+
+    // 폐쇄망 지도: 정적 XYZ 타일과 사용자가 선택한 GeoTIFF 원본을 각각 토글한다.
+    createViewCheckbox('off-line 지도', false, checked => {
+        try {
+            window.mapDrawing?.offlineMap?.(checked);
+        } catch (error) {
+            console.error('[보기 메뉴] off-line 지도 표시 실패:', error);
+            alert(error.message || 'off-line 지도를 표시하지 못했습니다.');
+        }
+    });
+
+    const originalMapInput = document.createElement('input');
+    originalMapInput.type = 'file';
+    originalMapInput.accept = '.tif,.tiff,image/tiff';
+    originalMapInput.hidden = true;
+    document.body.appendChild(originalMapInput);
+
+    const originalMapCheckbox = createViewCheckbox('원본 지도', false, checked => {
+        if (!checked) {
+            window.mapDrawing?.originalGeoTiff?.(null, false);
+            return;
+        }
+        originalMapInput.value = '';
+        originalMapInput.click();
+    });
+
+    originalMapInput.addEventListener('change', async () => {
+        const file = originalMapInput.files?.[0];
+        if (!file) {
+            originalMapCheckbox.checked = false;
+            return;
+        }
+        try {
+            const result = await window.mapDrawing.originalGeoTiff(file, true);
+            originalMapCheckbox.checked = true;
+            if (result?.reduced) {
+                console.warn(
+                    `[원본 지도] ${result.sourceWidth}x${result.sourceHeight} 원본을 ` +
+                    `${result.displayWidth}x${result.displayHeight} 화면 해상도로 표시합니다.`
+                );
+            }
+        } catch (error) {
+            originalMapCheckbox.checked = false;
+            console.error('[보기 메뉴] 원본 지도 표시 실패:', error);
+            alert(error.message || '원본 GeoTIFF를 표시하지 못했습니다.');
+        }
+    });
+
+    // 2차원 지도 체크 시 2D로, 체크 해제 시 기본 3D 보기로 전환합니다.
+    const map2DLabel = document.createElement('label');
+    const map2DCheckbox = document.createElement('input');
+    const map2DText = document.createElement('span');
+    map2DCheckbox.type = 'checkbox';
+    map2DCheckbox.checked = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
+    map2DText.textContent = '2차원 지도';
+    map2DLabel.append(map2DCheckbox, map2DText);
+    viewDropContent.appendChild(map2DLabel);
+
+    let pendingMapView = null;
+
+    function captureCurrentMapView() {
+        const scene = viewer.scene;
+        const camera = viewer.camera;
+        const center = new Cesium.Cartesian2(
+            scene.canvas.clientWidth / 2,
+            scene.canvas.clientHeight / 2
+        );
+        const ray = camera.getPickRay(center);
+        let position = ray ? scene.globe.pick(ray, scene) : undefined;
+        if (!Cesium.defined(position)) {
+            position = camera.pickEllipsoid(center, scene.globe.ellipsoid);
+        }
+        if (!Cesium.defined(position)) return null;
+
+        const cartographic = scene.globe.ellipsoid.cartesianToCartographic(position);
+        if (!cartographic) return null;
+
+        const pixelSize = camera.getPixelSize(
+            new Cesium.BoundingSphere(position, 1.0),
+            scene.drawingBufferWidth,
+            scene.drawingBufferHeight
+        );
+        if (!Number.isFinite(pixelSize) || pixelSize <= 0) return null;
+
+        return {
+            longitude: cartographic.longitude,
+            latitude: cartographic.latitude,
+            metersPerPixel: pixelSize,
+            heading: Number.isFinite(camera.heading) ? camera.heading : 0.0
+        };
+    }
+
+    function restoreMapView(viewState) {
+        if (!viewState) return;
+        const scene = viewer.scene;
+        const camera = viewer.camera;
+        const bufferWidth = scene.drawingBufferWidth;
+        const bufferHeight = scene.drawingBufferHeight;
+
+        if (scene.mode === Cesium.SceneMode.SCENE2D) {
+            const currentHeight = Math.max(camera.positionCartographic.height, 1.0);
+            camera.setView({
+                destination: Cesium.Cartesian3.fromRadians(
+                    viewState.longitude,
+                    viewState.latitude,
+                    currentHeight
+                )
+            });
+
+            const frustum = camera.frustum;
+            const desiredWidth = viewState.metersPerPixel * bufferWidth;
+            const halfWidth = desiredWidth / 2;
+            const halfHeight = halfWidth * (bufferHeight / bufferWidth);
+            if (Cesium.defined(frustum.left) && Cesium.defined(frustum.right)) {
+                frustum.left = -halfWidth;
+                frustum.right = halfWidth;
+                frustum.bottom = -halfHeight;
+                frustum.top = halfHeight;
+            } else if (Cesium.defined(frustum.width)) {
+                frustum.width = desiredWidth;
+            }
+        } else if (scene.mode === Cesium.SceneMode.SCENE3D) {
+            const fovy = camera.frustum.fovy;
+            const height = Cesium.defined(fovy)
+                ? viewState.metersPerPixel * bufferHeight / (2 * Math.tan(fovy / 2))
+                : camera.positionCartographic.height;
+            camera.setView({
+                destination: Cesium.Cartesian3.fromRadians(
+                    viewState.longitude,
+                    viewState.latitude,
+                    Math.max(height, 1.0)
+                ),
+                orientation: {
+                    heading: viewState.heading,
+                    pitch: Cesium.Math.toRadians(-90.0),
+                    roll: 0.0
+                }
+            });
+        }
+    }
+
+    map2DCheckbox.addEventListener('change', () => {
+        pendingMapView = captureCurrentMapView();
+        if (map2DCheckbox.checked) {
+            viewer.scene.morphTo2D(1.0);
+        } else {
+            viewer.scene.morphTo3D(1.0);
+        }
+    });
+
+    // Cesium의 morph 전환이 현재 화면 중심과 확대 수준을 그대로 이어받도록 합니다.
+    // 전환 완료 후에는 체크 상태만 동기화하고 카메라 위치를 강제로 변경하지 않습니다.
+    viewer.scene.morphComplete.addEventListener(() => {
+        const is2D = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
+        map2DCheckbox.checked = is2D;
+        restoreMapView(pendingMapView);
+        pendingMapView = null;
+        viewer.scene.requestRender();
+    });
+
+    // 4. ⭐ 즐겨찾기 (드롭다운 아이콘)
     const favDropContent = createDropdownIconButton('⭐ 즐겨찾기', 'star');
 
     let favoriteManagerPanel = null;
@@ -655,20 +1369,90 @@
             window.moveLocation.showMoveInfo();
         }
     });
-    favDropContent.appendChild(moveLink);    
+    favDropContent.appendChild(moveLink);
 
-    createIconButton('🎨 군대부호', 'military-tech', () => {
-        if (window.militarySymbolDialog && typeof window.militarySymbolDialog.toggle === 'function') {
-            window.militarySymbolDialog.toggle();
-        } else if (window.unifiedControlPanel && typeof window.unifiedControlPanel.toggleMilitary === 'function') {
-            window.unifiedControlPanel.toggleMilitary();
-        } else if (typeof window.openSymbolPopup === 'function') {
-            window.openSymbolPopup();
-        } else {
-            console.warn("군대부호 다이얼로그 스크립트가 로드되지 않았습니다.");
-        }
+
+    // 4. 📐 측정 도구 (드롭다운 아이콘)
+    const measureDropContent = createDropdownIconButton('📐 측정 기능 모음', 'straighten');
+    const measureActions = [
+        { name: '📏 거리 측정', action: () => { if(window.distance) distance.start(); } },
+        { name: '📐 면적 측정', action: () => { if(window.measure) measure.start(); } },
+        { name: '👁️‍🗨️ 가시선(LOS) 작도', action: () => { if(window.drawSightViewLine) drawSightViewLine.start(); } },
+        { name: '📊 차폐/LOS 분석', action: () => { 
+            if (window.angleLos && typeof window.angleLos.showMoveInfo === 'function') window.angleLos.showMoveInfo();
+        }}
+    ];
+    measureActions.forEach(item => {
+        const link = document.createElement('a');
+        link.textContent = item.name;
+        link.href = '#';
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            item.action();
+        });
+        measureDropContent.appendChild(link);
     });
-    
+
+
+    // 5. 🚀 대탄도탄 작전 (드롭다운 아이콘)
+    const opDropContent = createDropdownIconButton('🚀 대탄도탄 작전 모음', 'rocket-launch');
+    const opActions = [
+        { name: '🗺️ 공역생성', action: () => {
+            if (window.airspace && typeof window.airspace.togglePanel === 'function') {
+                window.airspace.togglePanel();
+            } else {
+                console.error('airspace.js가 로드되지 않았습니다.');
+                alert('공역생성 모듈을 불러오지 못했습니다.');
+            }
+        }},
+        { name: '🌐 Dome 그리기', action: () => {
+            if (window.domeDrawing && typeof window.domeDrawing.createControlPanel === 'function') {
+                const existBox = document.getElementById('controlPanel');
+                !existBox ? window.domeDrawing.createControlPanel() : window.domeDrawing.toggleInfoBox();
+            }
+        }},
+        { name: '📡 레이다 빔', action: () => {
+            if (window.radar && typeof window.radar.createInfoBox === 'function') {
+                const existBox = document.getElementById('radarInfoBox');
+                !existBox ? window.radar.createInfoBox() : window.radar.toggleInfoBox();
+            }
+        }},
+        { name: '🚀 탄도탄 경로', action: () => {
+            if (window.curve && typeof window.curve.createInfoBox === 'function') {
+                const existBox = document.getElementById('missileinfoBox');
+                !existBox ? window.curve.createInfoBox() : window.curve.toggleInfoBox();
+            }
+        }},
+        { name: '✈️ 항공기 항적', action: () => {
+            if (window.airpath && typeof window.airpath.createInfoBox === 'function') {
+                const existBox = document.getElementById('airpathinfoBox');
+                !existBox ? window.airpath.createInfoBox() : window.airpath.toggleInfoBox();
+            }
+        }},
+        { name: '🔥 유도탄 항적', action: () => {
+            if (window.particle && typeof window.particle.createInfoBox === 'function') {
+                const existBox = document.getElementById('particleinfoBox');
+                !existBox ? window.particle.createInfoBox() : window.particle.toggleInfoBox();
+            }
+        }},
+        { name: '📈 풀업 항적', action: () => {
+            if (window.pullup && typeof window.pullup.createInfoBox === 'function') {
+                const existBox = document.getElementById('pullupinfoBox');
+                !existBox ? window.pullup.createInfoBox() : window.pullup.toggleInfoBox();
+            }
+        }}
+    ];
+    opActions.forEach(item => {
+        const link = document.createElement('a');
+        link.textContent = item.name;
+        link.href = '#';
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            item.action();
+        });
+        opDropContent.appendChild(link);
+    });
+
 
     // 6. ✏️ 그리기 도구 (드롭다운 아이콘)
     const drawDropContent = createDropdownIconButton('✏️ 자유 투명도 그리기', 'edit');
@@ -1188,207 +1972,6 @@
     drawDropContent.appendChild(createDrawLink(drawActions.text));
 
 
-    // 단독 실행형 아이콘 버튼 생성 함수
-    function createIconButton(tooltipText, iconName, clickCallback, customClass = '') {
-        const btn = document.createElement('button');
-        btn.className = `icon-btn ${customClass}`;
-        btn.setAttribute('data-tooltip', tooltipText);
-
-        const img = document.createElement('img');
-        img.src = `img/${iconName}.png`;
-        btn.appendChild(img);
-
-        btn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            clickCallback(e);
-        });
-
-        menu.appendChild(btn);
-        return btn;
-    }
-
-    // 투명도 그리기 객체 생성 기록 기반 Undo / Redo
-    const undoStack = [];
-    const redoStack = [];
-    const historyRecordedEntities = new WeakSet();
-    let replayingHistory = false;
-
-    function historyEntities(entity) {
-        return [entity, ...(entity?.customData?.subEntities || [])].filter(Boolean);
-    }
-
-    function refreshHistoryButtons() {
-        if (!undoButton || !redoButton) return;
-        undoButton.disabled = undoStack.length === 0;
-        redoButton.disabled = redoStack.length === 0;
-        undoButton.style.opacity = undoButton.disabled ? '.35' : '1';
-        redoButton.style.opacity = redoButton.disabled ? '.35' : '1';
-    }
-
-    function undoDrawing() {
-        const command = undoStack.pop();
-        if (!command) return;
-        replayingHistory = true;
-        if (viewer.selectedEntity === command.entity) viewer.selectedEntity = undefined;
-        command.entities.forEach(entity => viewer.entities.remove(entity));
-        replayingHistory = false;
-        redoStack.push(command);
-        refreshHistoryButtons();
-        viewer.scene.requestRender();
-    }
-
-    function redoDrawing() {
-        const command = redoStack.pop();
-        if (!command) return;
-        replayingHistory = true;
-        command.entities.forEach(entity => { if (!viewer.entities.contains(entity)) viewer.entities.add(entity); });
-        document.dispatchEvent(new CustomEvent('drawing-entity-added', { detail: { entity: command.entity } }));
-        replayingHistory = false;
-        undoStack.push(command);
-        refreshHistoryButtons();
-        viewer.scene.requestRender();
-    }
-
-    function clearDrawingHistory() {
-        undoStack.length = 0;
-        redoStack.length = 0;
-        refreshHistoryButtons();
-    }
-
-    document.addEventListener('drawing-entity-added', event => {
-        const entity = event.detail?.entity;
-        if (replayingHistory || !entity?.customData?.drawingType || entity.customData.isDrawingGroup || historyRecordedEntities.has(entity)) return;
-        historyRecordedEntities.add(entity);
-        undoStack.push({ entity, entities: historyEntities(entity) });
-        redoStack.length = 0;
-        refreshHistoryButtons();
-    });
-
-    function createHistoryButton(imagePath, tooltip, action) {
-        const button = document.createElement('button');
-        button.className = 'icon-btn';
-        button.type = 'button';
-        button.setAttribute('data-tooltip', tooltip);
-        const image = document.createElement('img');
-        image.src = imagePath;
-        image.alt = tooltip;
-        button.appendChild(image);
-        button.addEventListener('click', event => { event.stopPropagation(); action(); });
-        menu.appendChild(button);
-        return button;
-    }
-
-    const undoButton = createHistoryButton('/img/Left.png', '실행 취소 (Ctrl+Z)', undoDrawing);
-    const redoButton = createHistoryButton('/img/Right.png', '다시 실행 (Ctrl+R)', redoDrawing);
-    homeButton.after(undoButton, redoButton);
-    refreshHistoryButtons();
-
-    document.addEventListener('keydown', event => {
-        if (!event.ctrlKey || event.altKey) return;
-        if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-        const key = event.key.toLowerCase();
-        if (key === 'z') {
-            event.preventDefault();
-            undoDrawing();
-        } else if (key === 'r') {
-            event.preventDefault();
-            redoDrawing();
-        }
-    });
-
-    // 💡 헬퍼 2: 마우스 지연 반응 타이머 기반 드롭다운 생성 함수
-    function createDropdownIconButton(tooltipText, iconName) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'dropdown-wrapper';
-
-        const triggerBtn = document.createElement('button');
-        triggerBtn.className = 'drop-trigger';
-        triggerBtn.setAttribute('title', tooltipText); 
-
-        const img = document.createElement('img');
-        //img.src = `https://api.iconify.design/material-symbols:${iconName}-rounded.svg`;
-        img.src = `img/${iconName}.png`;
-        triggerBtn.appendChild(img);
-        wrapper.appendChild(triggerBtn);
-
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'dropdown-content';
-        wrapper.appendChild(contentDiv);
-
-        let closeTimer = null;
-
-        const showMenu = () => {
-            if (closeTimer) {
-                clearTimeout(closeTimer);
-                closeTimer = null;
-            }
-            contentDiv.style.display = 'block';
-        };
-
-        const hideMenuDeferred = () => {
-            if (!closeTimer) {
-                closeTimer = setTimeout(() => {
-                    contentDiv.style.display = 'none';
-                }, 200); 
-            }
-        };
-
-        wrapper.addEventListener('mouseenter', showMenu);
-        wrapper.addEventListener('mouseleave', hideMenuDeferred);
-        contentDiv.addEventListener('mouseenter', showMenu);
-        contentDiv.addEventListener('mouseleave', hideMenuDeferred);
-
-        menu.appendChild(wrapper);
-        return contentDiv; 
-    }
-
-
-    // ==========================================
-    // ⚙️ 버튼 및 드롭다운 아이콘 셋 정의
-    // ==========================================
-
-    // createIconButton('🖼️ 빌보드 핀 배치', 'pin-drop', () => {
-    //     if (window.billboard) {
-    //         const dialog = document.getElementById('billboard-dialog');
-            
-    //         // 1. 다이얼로그가 숨겨져 있다면 먼저 화면에 표시합니다.
-    //         if (dialog && getComputedStyle(dialog).display === 'none') {
-    //             window.billboard.showUI();
-    //         }
-            
-    //         // 2. UI에 입력된 위경도/이미지 설정값으로 빌보드를 생성(또는 토글)합니다.
-    //         if (typeof window.billboard.createBillboardFromUI === 'function') {
-    //             window.billboard.createBillboardFromUI();
-    //         }
-    //     } else {
-    //         console.warn("billboard 모듈이 로드되지 않았습니다.");
-    //     }
-    // });
-
-   
-    // 📐 측정 도구 (드롭다운 아이콘)
-    const measureDropContent = createDropdownIconButton('📐 측정 기능 모음', 'straighten');
-    const measureActions = [
-        { name: '📏 거리 측정', action: () => { if(window.distance) distance.start(); } },
-        { name: '📐 면적 측정', action: () => { if(window.measure) measure.start(); } },
-        { name: '👁️‍🗨️ 가시선(LOS) 작도', action: () => { if(window.drawSightViewLine) drawSightViewLine.start(); } },
-        { name: '📊 차폐/LOS 분석', action: () => { 
-            if (window.angleLos && typeof window.angleLos.showMoveInfo === 'function') window.angleLos.showMoveInfo();
-        }}
-    ];
-    measureActions.forEach(item => {
-        const link = document.createElement('a');
-        link.textContent = item.name;
-        link.href = '#';
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            item.action();
-        });
-        measureDropContent.appendChild(link);
-    });
-
-    
-
     // ⛰️ 지형 프로파일링: Floor.png 버튼을 누른 후 지도에서 시작점/끝점을 선택합니다.
     let terrainProfileDialog = null;
     let terrainProfileActive = false;
@@ -1515,6 +2098,114 @@
         });
     });
 
+    // 지도 클릭 좌표 추출: "위도 경도,위도 경도" 형식으로 누적한다.
+    let coordinateExtractDialog = null;
+    let coordinateExtractOutput = null;
+    let coordinateExtractActive = false;
+    const extractedCoordinates = [];
+    const coordinateExtractHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+    function stopCoordinateExtraction() {
+        coordinateExtractActive = false;
+        viewer.canvas.style.cursor = '';
+    }
+
+    function startCoordinateExtraction() {
+        coordinateExtractActive = true;
+        viewer.canvas.style.cursor = 'crosshair';
+    }
+
+    function pickCoordinate(position) {
+        let cartesian;
+        if (viewer.scene.pickPositionSupported) cartesian = viewer.scene.pickPosition(position);
+        if (!Cesium.defined(cartesian)) {
+            const ray = viewer.camera.getPickRay(position);
+            cartesian = ray && viewer.scene.globe.pick(ray, viewer.scene);
+        }
+        if (!Cesium.defined(cartesian)) return null;
+        const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+        return {
+            latitude: Cesium.Math.toDegrees(cartographic.latitude),
+            longitude: Cesium.Math.toDegrees(cartographic.longitude)
+        };
+    }
+
+    coordinateExtractHandler.setInputAction(event => {
+        if (!coordinateExtractActive || !coordinateExtractDialog || coordinateExtractDialog.hidden) return;
+        const coordinate = pickCoordinate(event.position);
+        if (!coordinate) return;
+        extractedCoordinates.push(`${coordinate.latitude.toFixed(6)} ${coordinate.longitude.toFixed(6)}`);
+        coordinateExtractOutput.value = extractedCoordinates.join(',');
+        coordinateExtractOutput.scrollTop = coordinateExtractOutput.scrollHeight;
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    function enableCoordinateDialogDragging(dialog, handle) {
+        let dragging = false;
+        let offsetX = 0;
+        let offsetY = 0;
+        handle.addEventListener('pointerdown', event => {
+            if (event.target.closest('button')) return;
+            const rect = dialog.getBoundingClientRect();
+            dragging = true;
+            offsetX = event.clientX - rect.left;
+            offsetY = event.clientY - rect.top;
+            handle.setPointerCapture(event.pointerId);
+            event.preventDefault();
+        });
+        handle.addEventListener('pointermove', event => {
+            if (!dragging) return;
+            const left = Math.max(0, Math.min(event.clientX - offsetX, innerWidth - dialog.offsetWidth));
+            const top = Math.max(0, Math.min(event.clientY - offsetY, innerHeight - dialog.offsetHeight));
+            dialog.style.left = `${left}px`;
+            dialog.style.top = `${top}px`;
+        });
+        const stop = () => { dragging = false; };
+        handle.addEventListener('pointerup', stop);
+        handle.addEventListener('pointercancel', stop);
+    }
+
+    function createCoordinateExtractDialog() {
+        if (coordinateExtractDialog) return coordinateExtractDialog;
+        const dialog = document.createElement('section');
+        dialog.id = 'coordinate-extract-dialog';
+        dialog.hidden = true;
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-label', '좌표추출');
+        dialog.style.cssText = 'position:fixed;left:24px;top:90px;width:min(430px,calc(100vw - 16px));z-index:2600;padding:0;border:1px solid #59616c;border-radius:9px;background:rgba(27,29,32,.97);box-shadow:0 12px 30px rgba(0,0,0,.5);color:#fff;font:13px sans-serif;overflow:hidden;box-sizing:border-box;';
+        dialog.innerHTML = `
+            <header class="coordinate-extract-header" style="display:flex;align-items:center;height:42px;padding:0 8px 0 12px;background:#374151;cursor:move;user-select:none;">
+                <strong style="flex:1;">📍 좌표추출</strong>
+                <button type="button" class="coordinate-extract-close" aria-label="닫기" style="border:0;background:transparent;color:#fff;font-size:21px;cursor:pointer;">×</button>
+            </header>
+            <div style="padding:12px;">
+                <div style="margin-bottom:8px;color:#cbd5e1;">지도 화면을 클릭하세요. 표시 형식: 위도 경도,위도 경도</div>
+                <textarea class="coordinate-extract-output" readonly spellcheck="false" placeholder="지도에서 위치를 클릭하세요." style="display:block;width:100%;height:96px;padding:9px;resize:vertical;border:1px solid #64748b;border-radius:6px;background:#111827;color:#e0f2fe;font:12px/1.5 ui-monospace,monospace;box-sizing:border-box;"></textarea>
+                <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+                    <button type="button" class="coordinate-extract-clear" style="padding:6px 12px;border:0;border-radius:5px;background:#475569;color:#fff;cursor:pointer;">초기화</button>
+                </div>
+            </div>`;
+        document.body.appendChild(dialog);
+        coordinateExtractDialog = dialog;
+        coordinateExtractOutput = dialog.querySelector('.coordinate-extract-output');
+        dialog.querySelector('.coordinate-extract-close').addEventListener('click', () => {
+            dialog.hidden = true;
+            stopCoordinateExtraction();
+        });
+        dialog.querySelector('.coordinate-extract-clear').addEventListener('click', () => {
+            extractedCoordinates.length = 0;
+            coordinateExtractOutput.value = '';
+        });
+        enableCoordinateDialogDragging(dialog, dialog.querySelector('.coordinate-extract-header'));
+        return dialog;
+    }
+
+    createIconButton('📍 좌표추출', 'Pin-Drop', () => {
+        const dialog = createCoordinateExtractDialog();
+        dialog.hidden = !dialog.hidden;
+        if (dialog.hidden) stopCoordinateExtraction();
+        else startCoordinateExtraction();
+    });
+
     // 좌표변환 다이얼로그 (Degree/DMS 입력 -> DMS, UTM, MGRS, GEOREF)
     createIconButton('🌐 좌표 변환', 'Transform', () => {
         if (window.CoordinateDialog && typeof window.CoordinateDialog.toggle === 'function') {
@@ -1523,195 +2214,6 @@
             console.warn('CoordinateDialog 스크립트가 로드되지 않았습니다.');
         }
     });
-
-// 대탄도탄 작전 (드롭다운 아이콘)
-    const opDropContent = createDropdownIconButton('🚀 대탄도탄 작전 모음', 'rocket-launch');
-    const opActions = [
-        { name: '🗺️ 공역생성', action: () => {
-            if (window.airspace && typeof window.airspace.togglePanel === 'function') {
-                window.airspace.togglePanel();
-            } else {
-                console.error('airspace.js가 로드되지 않았습니다.');
-                alert('공역생성 모듈을 불러오지 못했습니다.');
-            }
-        }},
-        { name: '🌐 Dome 그리기', action: () => {
-            if (window.domeDrawing && typeof window.domeDrawing.createControlPanel === 'function') {
-                const existBox = document.getElementById('controlPanel');
-                !existBox ? window.domeDrawing.createControlPanel() : window.domeDrawing.toggleInfoBox();
-            }
-        }},
-        { name: '📡 레이다 빔', action: () => {
-            if (window.radar && typeof window.radar.createInfoBox === 'function') {
-                const existBox = document.getElementById('radarInfoBox');
-                !existBox ? window.radar.createInfoBox() : window.radar.toggleInfoBox();
-            }
-        }},
-        { name: '🚀 탄도탄 경로', action: () => {
-            if (window.curve && typeof window.curve.createInfoBox === 'function') {
-                const existBox = document.getElementById('missileinfoBox');
-                !existBox ? window.curve.createInfoBox() : window.curve.toggleInfoBox();
-            }
-        }},
-        { name: '✈️ 항공기 항적', action: () => {
-            if (window.airpath && typeof window.airpath.createInfoBox === 'function') {
-                const existBox = document.getElementById('airpathinfoBox');
-                !existBox ? window.airpath.createInfoBox() : window.airpath.toggleInfoBox();
-            }
-        }},
-        { name: '🔥 유도탄 항적', action: () => {
-            if (window.particle && typeof window.particle.createInfoBox === 'function') {
-                const existBox = document.getElementById('particleinfoBox');
-                !existBox ? window.particle.createInfoBox() : window.particle.toggleInfoBox();
-            }
-        }},
-        { name: '📈 풀업 항적', action: () => {
-            if (window.pullup && typeof window.pullup.createInfoBox === 'function') {
-                const existBox = document.getElementById('pullupinfoBox');
-                !existBox ? window.pullup.createInfoBox() : window.pullup.toggleInfoBox();
-            }
-        }}
-    ];
-    opActions.forEach(item => {
-        const link = document.createElement('a');
-        link.textContent = item.name;
-        link.href = '#';
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            item.action();
-        });
-        opDropContent.appendChild(link);
-    });
-
-
-    // 3. 👁 보기 (스케일바 / 상태바 표시 전환)
-    const viewDropContent = createDropdownIconButton('👁 보기', 'View-In-Ar');
-
-    function createViewAction(labelText, action) {
-        const link = document.createElement('a');
-        link.href = '#';
-        link.textContent = labelText;
-        link.addEventListener('click', event => {
-            event.preventDefault();
-            event.stopPropagation();
-            action();
-        });
-        viewDropContent.appendChild(link);
-        return link;
-    }
-
-    // 보기 메뉴의 첫 항목
-    createViewAction('빌보드 배치', () => {
-        const dialog = document.getElementById('billboard-dialog');
-        if (dialog) {
-            const isHidden = getComputedStyle(dialog).display === 'none';
-            dialog.style.display = isHidden ? 'block' : 'none';
-        } else if (window.billboard && typeof window.billboard.createBillboardFromUI === 'function') {
-            window.billboard.createBillboardFromUI();
-        }
-    });
-
-    function createViewCheckbox(labelText, checked, onChange) {
-        const label = document.createElement('label');
-        const checkbox = document.createElement('input');
-        const text = document.createElement('span');
-        checkbox.type = 'checkbox';
-        checkbox.checked = checked;
-        text.textContent = labelText;
-        label.append(checkbox, text);
-        viewDropContent.appendChild(label);
-        checkbox.addEventListener('change', () => onChange(checkbox.checked));
-        return checkbox;
-    }
-
-    const compassCheckbox = createViewCheckbox('나침반', true, checked => {
-        const compass = document.getElementById('compass');
-        const visible = compass ? getComputedStyle(compass).display !== 'none' : !checked;
-        if (visible !== checked && typeof toggleCompass === 'function') toggleCompass();
-    });
-    const syncCompassCheckbox = () => {
-        const compass = document.getElementById('compass');
-        if (compass) compassCheckbox.checked = getComputedStyle(compass).display !== 'none';
-    };
-    window.addEventListener('load', syncCompassCheckbox, { once: true });
-    setTimeout(syncCompassCheckbox, 0);
-
-    // mapDraw.ModelDraw()의 초기값이 숨김이므로 체크 해제 상태로 시작한다.
-    createViewCheckbox('3D 모델 ON/OFF', false, () => {
-        window.mapDrawing?.toggleTilesetVisibility?.();
-    });
-
-    function createVisibilityToggle(labelText, controlName, changeEventName) {
-        const label = document.createElement('label');
-        const checkbox = document.createElement('input');
-        const text = document.createElement('span');
-        checkbox.type = 'checkbox';
-        checkbox.checked = true;
-        text.textContent = labelText;
-        label.append(checkbox, text);
-        viewDropContent.appendChild(label);
-
-        const sync = () => {
-            const control = window[controlName];
-            checkbox.checked = control ? control.isVisible() : false;
-            checkbox.disabled = !control;
-        };
-        checkbox.addEventListener('change', () => {
-            window[controlName]?.setVisible(checkbox.checked);
-        });
-        document.addEventListener(changeEventName, sync);
-        window.addEventListener('load', sync, { once: true });
-        setTimeout(sync, 0);
-        return checkbox;
-    }
-
-    createVisibilityToggle('스케일바', 'ScaleBarControl', 'scalebar-visibility-changed');
-    createVisibilityToggle('Status Bar', 'StatusBarControl', 'statusbar-visibility-changed');
-
-    // 2차원 지도 체크 시 2D로, 체크 해제 시 기본 3D 보기로 전환합니다.
-    const map2DLabel = document.createElement('label');
-    const map2DCheckbox = document.createElement('input');
-    const map2DText = document.createElement('span');
-    map2DCheckbox.type = 'checkbox';
-    map2DCheckbox.checked = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
-    map2DText.textContent = '2차원 지도';
-    map2DLabel.append(map2DCheckbox, map2DText);
-    viewDropContent.appendChild(map2DLabel);
-
-    map2DCheckbox.addEventListener('change', () => {
-        if (map2DCheckbox.checked) {
-            viewer.scene.morphTo2D(1.0);
-        } else {
-            viewer.scene.morphTo3D(1.0);
-        }
-    });
-
-    // 다른 코드에서 보기 모드를 변경해도 메뉴 체크 상태를 실제 지도와 맞춥니다.
-    viewer.scene.morphComplete.addEventListener(() => {
-        const is2D = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
-        map2DCheckbox.checked = is2D;
-
-        if (is2D) {
-            // 3D 홈 버튼과 동일한 중심 좌표 및 확대 수준을 사용합니다.
-            viewer.camera.setView({
-                destination: HOME_VIEW_DESTINATION
-            });
-        } else if (viewer.scene.mode === Cesium.SceneMode.SCENE3D) {
-            // 3D 복귀 시에도 홈 버튼과 동일한 위치와 수직 하향 시점을 적용합니다.
-            viewer.camera.setView({
-                destination: HOME_VIEW_DESTINATION,
-                orientation: {
-                    heading: Cesium.Math.toRadians(0.0),
-                    pitch: Cesium.Math.toRadians(-90.0),
-                    roll: 0.0
-                }
-            });
-        }
-
-        viewer.scene.requestRender();
-    });
-
-
 
     // 환경 설정 (Base Map, GPS, 화면 설정)
     createIconButton('⚙️ 설정', 'settings', () => {
@@ -1798,6 +2300,54 @@
     let offsetX = 0;
     let offsetY = 0;
 
+    const menuResizeObserver = new ResizeObserver(refreshMenuPosition);
+    menuResizeObserver.observe(menu);
+    const observeMenuDock = element => {
+        if (!(element instanceof Element)) return;
+        if (element.matches('.layer-dialog-container')) menuResizeObserver.observe(element);
+        element.querySelectorAll?.('.layer-dialog-container').forEach(dock => menuResizeObserver.observe(dock));
+    };
+    document.querySelectorAll('.layer-dialog-container').forEach(observeMenuDock);
+    new MutationObserver(mutations => {
+        let dockChanged = false;
+        mutations.forEach(mutation => {
+            if (mutation.target instanceof Element && mutation.target.matches('.layer-dialog-container')) dockChanged = true;
+            mutation.addedNodes.forEach(node => {
+                if (!(node instanceof Element)) return;
+                if (node.matches('.layer-dialog-container') || node.querySelector?.('.layer-dialog-container')) {
+                    observeMenuDock(node);
+                    dockChanged = true;
+                }
+            });
+            mutation.removedNodes.forEach(node => {
+                if (!(node instanceof Element)) return;
+                if (node.matches('.layer-dialog-container') || node.querySelector?.('.layer-dialog-container')) {
+                    dockChanged = true;
+                }
+            });
+        });
+        if (dockChanged) requestAnimationFrame(function () {
+            alignMenuForCurrentLayout();
+        });
+    }).observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['class', 'style', 'hidden']
+    });
+    window.addEventListener('resize', refreshMenuPosition);
+    document.addEventListener('layer-dock-layout-changed', function (event) {
+        alignMenuForCurrentLayout();
+    });
+
+    // LayerManager.init/open이 menu.js 뒤에서 실행되므로 모든 초기 UI가 만들어진
+    // 다음 프레임에 실제 사용 가능한 지도 영역을 기준으로 한 번 중앙 정렬한다.
+    window.addEventListener('load', function () {
+        requestAnimationFrame(function () {
+            requestAnimationFrame(centerMenuInAvailableArea);
+        });
+    }, { once: true });
+
     menu.addEventListener('mousedown', function(e) {
         const isClickableElement = e.target.closest('button') || 
                                    e.target.closest('.dropdown-content') ||
@@ -1823,11 +2373,12 @@
         let x = e.clientX - offsetX;
         let y = e.clientY - offsetY;
 
-        const maxX = window.innerWidth - menu.offsetWidth;
-        const maxY = window.innerHeight - menu.offsetHeight;
+        const bounds = getMenuBounds();
+        const maxX = bounds.right - menu.offsetWidth;
+        const maxY = bounds.bottom - menu.offsetHeight;
 
-        x = Math.max(0, Math.min(x, maxX));
-        y = Math.max(0, Math.min(y, maxY));
+        x = Math.max(bounds.left, Math.min(x, maxX));
+        y = Math.max(bounds.top, Math.min(y, maxY));
 
         menu.style.left = `${x}px`;
         menu.style.top = `${y}px`;
@@ -1837,6 +2388,11 @@
         if (isDragging) {
             isDragging = false;
             viewer.scene.screenSpaceCameraController.enableInputs = true;
+            if (menu.classList.contains('menu-vertical')) {
+                const rect = menu.getBoundingClientRect();
+                menu.dataset.verticalSide = rect.left + rect.width / 2 <= window.innerWidth / 2 ? 'left' : 'right';
+            }
+            refreshMenuPosition();
         }
     });
 

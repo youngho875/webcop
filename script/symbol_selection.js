@@ -257,7 +257,7 @@ window.unifiedControlPanel = (function () {
         "core": {
           "check_callback": true,
           "data": {
-            "url": "data1/alldata.json",
+            "url": "icops/alldata.json",
             "dataType": "json",
             "error": function(jqXHR, textStatus, errorThrown) {
               console.error("jstree 데이터 로드 실패:");

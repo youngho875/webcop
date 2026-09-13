@@ -162,6 +162,8 @@
 
     function isVisible(element) {
         if (!element || element === statusBar || !element.isConnected) return false;
+        // 접힌 레이어관리 바는 상태바 중앙 계산에서 숨김 상태로 본다.
+        if (element.matches('.layer-dialog-container.layer-dock-collapsed')) return false;
         const computed = window.getComputedStyle(element);
         const rect = element.getBoundingClientRect();
         return computed.display !== 'none' && computed.visibility !== 'hidden' &&
@@ -246,6 +248,17 @@
         const rect = statusBar.getBoundingClientRect();
         placeStatusBar(rect.left, rect.top);
     }
+
+    function centerStatusBarInAvailableArea() {
+        if (dragging || statusBar.hidden) return;
+        const bounds = getLayoutBounds();
+        const availableWidth = Math.max(180, bounds.right - bounds.left);
+        statusBar.style.maxWidth = `${availableWidth}px`;
+        const width = Math.min(statusBar.offsetWidth, availableWidth);
+        const height = statusBar.offsetHeight;
+        const left = bounds.left + Math.max(0, (availableWidth - width) / 2);
+        placeStatusBar(left, bounds.bottom - height);
+    }
     dragHandle.addEventListener('pointerdown', function (event) {
         if (event.button !== 0) return;
         const rect = statusBar.getBoundingClientRect();
@@ -283,7 +296,22 @@
     dragHandle.addEventListener('pointerup', stopDragging);
     dragHandle.addEventListener('pointercancel', stopDragging);
 
-    const layoutObserver = new MutationObserver(adjustStatusBarPosition);
+    const layoutObserver = new MutationObserver(function (mutations) {
+        const layerLayoutChanged = mutations.some(function (mutation) {
+            if (mutation.target instanceof Element && mutation.target.matches('.layer-dialog-container')) return true;
+            return Array.from(mutation.addedNodes).concat(Array.from(mutation.removedNodes)).some(function (node) {
+                return node instanceof Element &&
+                    (node.matches('.layer-dialog-container') || node.querySelector?.('.layer-dialog-container'));
+            });
+        });
+        if (!layerLayoutChanged) {
+            adjustStatusBarPosition();
+            return;
+        }
+        requestAnimationFrame(function () {
+            centerStatusBarInAvailableArea();
+        });
+    });
     layoutObserver.observe(document.body, {
         subtree: true,
         childList: true,
@@ -297,6 +325,9 @@
         layoutResizeObserver.observe(element);
     });
     window.addEventListener('resize', adjustStatusBarPosition);
+    document.addEventListener('layer-dock-layout-changed', function (event) {
+        requestAnimationFrame(centerStatusBarInAvailableArea);
+    });
     if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', adjustStatusBarPosition);
         window.visualViewport.addEventListener('scroll', adjustStatusBarPosition);
@@ -305,6 +336,7 @@
 
     window.StatusBarControl = {
         element: statusBar,
+        center: centerStatusBarInAvailableArea,
         isVisible: () => !statusBar.hidden,
         setVisible: visible => {
             statusBar.hidden = !visible;

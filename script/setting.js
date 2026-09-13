@@ -8,6 +8,8 @@
     "use strict";
 
     const DIALOG_ID = "webcop-setting-dialog";
+    const MENU_ORIENTATION_KEY = "webcop-main-menu-orientation";
+    const WEBSOCKET_SETTINGS_KEY = "webcop-websocket-settings";
     let dialog = null;
     let controls = null;
     let managedBaseLayer = null;
@@ -24,7 +26,7 @@
                 left: calc(50vw - 175px);
                 z-index: 2250;
                 width: min(350px, calc(100vw - 16px));
-                height: min(400px, calc(100vh - 16px));
+                height: min(700px, calc(100vh - 16px));
                 color: #f4f4f5;
                 background: linear-gradient(145deg, rgba(44, 47, 52, 0.98), rgba(31, 33, 37, 0.98));
                 border: 1px solid rgba(255, 255, 255, 0.13);
@@ -80,7 +82,7 @@
             .webcop-setting-close:hover { color: #fff; background: rgba(239, 68, 68, 0.72); }
             .webcop-setting-body {
                 height: calc(100% - 48px);
-                padding: 16px;
+                padding: 12px 16px;
                 overflow-y: auto;
             }
             .webcop-setting-row {
@@ -88,8 +90,8 @@
                 grid-template-columns: 84px minmax(0, 1fr);
                 align-items: center;
                 gap: 10px;
-                min-height: 38px;
-                margin-bottom: 10px;
+                min-height: 33px;
+                margin-bottom: 7px;
             }
             .webcop-setting-label {
                 color: #d4d4d8;
@@ -99,14 +101,31 @@
             }
             .webcop-setting-select {
                 width: 100%;
-                height: 35px;
-                padding: 5px 9px;
+                height: 30px;
+                padding: 3px 8px;
                 color: #18181b;
                 background: #fff;
                 border: 1px solid #d4d4d8;
                 border-radius: 6px;
                 font-size: 12px;
             }
+            .webcop-setting-input {
+                width: 100%;
+                height: 28px;
+                padding: 3px 8px;
+                color: #18181b;
+                background: #fff;
+                border: 1px solid #d4d4d8;
+                border-radius: 6px;
+                font-size: 12px;
+            }
+            .webcop-setting-input[readonly] { color: #bae6fd; background: #27272a; border-color: #52525b; }
+            .webcop-setting-actions { display: flex; gap: 7px; margin: 7px 0 2px 94px; }
+            .webcop-setting-button {
+                min-width: 68px; height: 28px; padding: 0 10px; color: #fff;
+                background: #0369a1; border: 1px solid #38bdf8; border-radius: 6px; cursor: pointer;
+            }
+            .webcop-setting-button.secondary { color: #e4e4e7; background: #3f3f46; border-color: #71717a; }
             .webcop-setting-gps {
                 display: inline-flex;
                 align-items: center;
@@ -124,8 +143,8 @@
                 accent-color: var(--setting-accent);
             }
             .webcop-setting-section {
-                margin-top: 13px;
-                padding: 12px 10px 7px;
+                margin-top: 8px;
+                padding: 9px 10px 5px;
                 border: 1px solid rgba(255, 255, 255, 0.13);
                 border-radius: 8px;
                 background: rgba(0, 0, 0, 0.12);
@@ -141,14 +160,14 @@
                 grid-template-columns: 52px minmax(0, 1fr) 37px;
                 align-items: center;
                 gap: 7px;
-                min-height: 37px;
+                min-height: 32px;
             }
             .webcop-setting-range-row label { color: #d4d4d8; font-size: 12px; }
             .webcop-setting-range-row input[type="range"] { width: 100%; accent-color: var(--setting-accent); }
             .webcop-setting-value { color: #bae6fd; font: 10px ui-monospace, monospace; text-align: right; }
             .webcop-setting-status {
                 min-height: 14px;
-                margin: 6px 0 0 94px;
+                margin: 4px 0 0 94px;
                 color: #a1a1aa;
                 font-size: 10px;
             }
@@ -187,6 +206,33 @@
         return { row, input };
     }
 
+    function readWebSocketSettings() {
+        const fallback = {
+            role: "client",
+            host: location.hostname || "127.0.0.1",
+            port: location.port || "8090",
+            path: "ws"
+        };
+        try { return { ...fallback, ...JSON.parse(localStorage.getItem(WEBSOCKET_SETTINGS_KEY) || "{}") }; }
+        catch { return fallback; }
+    }
+
+    function normalizeSocketPath(value) {
+        return String(value || "ws").trim().replace(/^\/+|\/+$/g, "") || "ws";
+    }
+
+    function buildWebSocketUrl(host, port, path) {
+        return `ws://${String(host).trim()}:${String(port).trim()}/${normalizeSocketPath(path)}`;
+    }
+
+    function createSettingInput(id, type, value) {
+        const input = createElement("input", "webcop-setting-input");
+        input.id = id;
+        input.type = type;
+        input.value = value;
+        return input;
+    }
+
     function createDialog() {
         if (dialog) return dialog;
         injectStyle();
@@ -213,6 +259,8 @@
         baseMap.id = "setting-base-map";
         [
             ["current", "현재 지도"],
+            ["offline", "오프라인 지도"],
+            ["offline-color", "오프라인 컬러영상"],
             ["osm", "OpenStreetMap"],
             ["world", "World Imagery"]
         ].forEach(function ([value, label]) {
@@ -233,6 +281,68 @@
         gpsLabel.append(gpsCheckbox, document.createTextNode("GPS 사용"));
         gpsRow.append(gpsTitle, gpsLabel);
 
+        const menuOrientationRow = createElement("div", "webcop-setting-row");
+        const menuOrientationLabel = createElement("label", "webcop-setting-label", "메인 메뉴");
+        const menuOrientation = createElement("select", "webcop-setting-select");
+        menuOrientationLabel.htmlFor = "setting-main-menu-orientation";
+        menuOrientation.id = "setting-main-menu-orientation";
+        [["horizontal", "가로"], ["vertical", "세로"]].forEach(function ([value, label]) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = label;
+            menuOrientation.appendChild(option);
+        });
+        menuOrientation.value = localStorage.getItem(MENU_ORIENTATION_KEY) === "vertical" ? "vertical" : "horizontal";
+        menuOrientationRow.append(menuOrientationLabel, menuOrientation);
+
+        const savedWebSocket = readWebSocketSettings();
+        const webSocketSection = document.createElement("fieldset");
+        webSocketSection.className = "webcop-setting-section";
+        webSocketSection.appendChild(createElement("legend", "", "WebSocket 설정"));
+
+        const wsRoleRow = createElement("div", "webcop-setting-row");
+        const wsRoleLabel = createElement("label", "webcop-setting-label", "시작 방식");
+        const wsRole = createElement("select", "webcop-setting-select");
+        wsRoleLabel.htmlFor = "setting-websocket-role";
+        wsRole.id = "setting-websocket-role";
+        [["client", "클라이언트 시작"], ["server", "서버 시작"]].forEach(function ([value, label]) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = label;
+            wsRole.appendChild(option);
+        });
+        wsRole.value = savedWebSocket.role === "server" ? "server" : "client";
+        wsRoleRow.append(wsRoleLabel, wsRole);
+
+        function makeWsRow(labelText, input) {
+            const row = createElement("div", "webcop-setting-row");
+            const label = createElement("label", "webcop-setting-label", labelText);
+            label.htmlFor = input.id;
+            row.append(label, input);
+            return row;
+        }
+        const wsHost = createSettingInput("setting-websocket-host", "text", savedWebSocket.host);
+        const wsPort = createSettingInput("setting-websocket-port", "number", savedWebSocket.port);
+        wsPort.min = "1"; wsPort.max = "65535";
+        const wsPath = createSettingInput("setting-websocket-path", "text", savedWebSocket.path);
+        wsPath.placeholder = "ws 또는 gps-ws";
+        const wsUrl = createSettingInput("setting-websocket-url", "text", "");
+        wsUrl.readOnly = true;
+        const wsActions = createElement("div", "webcop-setting-actions");
+        const wsStart = createElement("button", "webcop-setting-button", "시작");
+        const wsStop = createElement("button", "webcop-setting-button secondary", "중지");
+        const wsLog = createElement("button", "webcop-setting-button secondary", "로그");
+        wsStart.type = wsStop.type = wsLog.type = "button";
+        wsActions.append(wsStart, wsStop, wsLog);
+        webSocketSection.append(
+            wsRoleRow,
+            makeWsRow("IP", wsHost),
+            makeWsRow("포트", wsPort),
+            makeWsRow("마지막 경로", wsPath),
+            makeWsRow("접속 주소", wsUrl),
+            wsActions
+        );
+
         const status = createElement("p", "webcop-setting-status", "GPS 기본 상태: OFF");
         status.setAttribute("role", "status");
         const section = document.createElement("fieldset");
@@ -243,13 +353,15 @@
         const hue = createRange("색상", "hue", -180, 180, 1, 0);
         const alpha = createRange("투명도", "alpha", 0, 100, 1, 100);
         section.append(brightness.row, saturation.row, hue.row, alpha.row);
-        body.append(baseMapRow, gpsRow, status, section);
+        body.append(baseMapRow, gpsRow, menuOrientationRow, webSocketSection, status, section);
         dialog.append(header, body);
         document.body.appendChild(dialog);
 
         controls = {
             baseMap,
             gpsCheckbox,
+            menuOrientation,
+            wsRole, wsHost, wsPort, wsPath, wsUrl, wsStart, wsStop, wsLog,
             brightness: brightness.input,
             saturation: saturation.input,
             hue: hue.input,
@@ -262,6 +374,83 @@
         gpsCheckbox.addEventListener("change", function () {
             setGpsEnabled(gpsCheckbox.checked);
         });
+        menuOrientation.addEventListener("change", function () {
+            const orientation = menuOrientation.value === "vertical" ? "vertical" : "horizontal";
+            localStorage.setItem(MENU_ORIENTATION_KEY, orientation);
+            root.MainMenuLayout?.setOrientation?.(orientation);
+            controls.status.textContent = `메인 메뉴: ${orientation === "vertical" ? "세로" : "가로"}`;
+        });
+        function updateWebSocketPreview() {
+            wsUrl.value = buildWebSocketUrl(wsHost.value, wsPort.value, wsPath.value);
+        }
+        function saveWebSocketSettings() {
+            const config = {
+                role: wsRole.value,
+                host: wsHost.value.trim(),
+                port: wsPort.value.trim(),
+                path: normalizeSocketPath(wsPath.value),
+                url: wsUrl.value
+            };
+            localStorage.setItem(WEBSOCKET_SETTINGS_KEY, JSON.stringify(config));
+            return config;
+        }
+        [wsHost, wsPort, wsPath].forEach(function (input) {
+            input.addEventListener("input", function () { updateWebSocketPreview(); saveWebSocketSettings(); });
+        });
+        wsRole.addEventListener("change", function () { updateWebSocketPreview(); saveWebSocketSettings(); });
+        wsStart.addEventListener("click", async function () {
+            root.WebSocketLogWindow?.open?.();
+            updateWebSocketPreview();
+            const config = saveWebSocketSettings();
+            root.WebSocketLogWindow?.log?.("info", `${config.role === "server" ? "서버" : "클라이언트"} 시작 요청`, config.url);
+            if (!config.host || !/^\d+$/.test(config.port) || Number(config.port) < 1 || Number(config.port) > 65535) {
+                controls.status.textContent = "WebSocket IP와 포트를 확인하세요.";
+                root.WebSocketLogWindow?.log?.("error", controls.status.textContent);
+                return;
+            }
+            if (config.role === "client") {
+                const started = root.realtimeGps?.configure?.({ url: config.url });
+                controls.status.textContent = started ? `WebSocket 클라이언트 연결 중: ${config.url}` : "WebSocket 주소를 확인하세요.";
+                return;
+            }
+            try {
+                const response = await fetch("/api/websocket/start", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ host: config.host, port: Number(config.port), path: config.path })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || "서버 시작 실패");
+                root.WebSocketLogWindow?.log?.("success", "WebSocket 서버가 시작되었습니다.", result);
+                const clientHost = ["0.0.0.0", "::"].includes(config.host)
+                    ? (location.hostname || "127.0.0.1") : config.host;
+                const clientUrl = buildWebSocketUrl(clientHost, config.port, config.path);
+                localStorage.setItem(WEBSOCKET_SETTINGS_KEY, JSON.stringify({ ...config, url: clientUrl }));
+                const connected = root.realtimeGps?.configure?.({ url: clientUrl });
+                controls.status.textContent = connected
+                    ? `WebSocket 서버 시작 · 자체 화면 연결 중: ${clientUrl}`
+                    : `WebSocket 서버 시작: ${result.url}`;
+            } catch (error) {
+                controls.status.textContent = error.message;
+                root.WebSocketLogWindow?.log?.("error", "WebSocket 서버 시작 실패", error.message);
+            }
+        });
+        wsLog.addEventListener("click", function () { root.WebSocketLogWindow?.open?.(); });
+        wsStop.addEventListener("click", async function () {
+            if (wsRole.value === "client") {
+                root.realtimeGps?.disconnect?.();
+                controls.status.textContent = "WebSocket 클라이언트 중지";
+                root.WebSocketLogWindow?.close?.();
+                return;
+            }
+            try {
+                const response = await fetch("/api/websocket/stop", { method: "POST" });
+                if (!response.ok) throw new Error("서버 중지 실패");
+                root.realtimeGps?.disconnect?.();
+                controls.status.textContent = "WebSocket 서버 중지";
+                root.WebSocketLogWindow?.close?.();
+            } catch (error) { controls.status.textContent = error.message; }
+        });
+        updateWebSocketPreview();
         dialog.addEventListener("keydown", function (event) {
             if (event.key === "Escape") hide();
         });
@@ -301,15 +490,43 @@
 
         try {
             let provider;
-            if (selected === "osm") {
-                provider = new Cesium.OpenStreetMapImageryProvider({ url: "https://tile.openstreetmap.org/" });
-            } else {
-                provider = await Cesium.IonImageryProvider.fromAssetId(2);
-            }
+            root.WebCopOfflineMap?.showLocalOnly?.();
             if (managedBaseLayer && viewer.imageryLayers.contains(managedBaseLayer)) {
                 viewer.imageryLayers.remove(managedBaseLayer, true);
             }
-            managedBaseLayer = viewer.imageryLayers.addImageryProvider(provider, 0);
+            managedBaseLayer = null;
+            if (selected === "offline" || selected === "offline-color") {
+                applyScreenSettings();
+                viewer.scene.requestRender();
+                if (selected === "offline-color") {
+                    const moved = root.WebCopOfflineMap?.flyToColorImagery?.();
+                    controls.status.textContent = moved ? "Stand 오프라인 컬러영상 적용" : "컬러영상을 불러오는 중입니다.";
+                    if (!moved) {
+                        root.WebCopOfflineMap?.loadColorImagery?.().then(function () {
+                            root.WebCopOfflineMap?.flyToColorImagery?.();
+                        });
+                    }
+                } else {
+                    controls.status.textContent = "오프라인 지도 적용";
+                }
+                return;
+            } else if (selected === "osm") {
+                provider = new Cesium.OpenStreetMapImageryProvider({
+                    url: "https://tile.openstreetmap.org/"
+                });
+            } else {
+                provider = await Cesium.IonImageryProvider.fromAssetId(2);
+            }
+            managedBaseLayer = viewer.imageryLayers.addImageryProvider(provider);
+            let errorCount = 0;
+            provider.errorEvent?.addEventListener(function () {
+                errorCount += 1;
+                if (errorCount < 3 || !managedBaseLayer || !viewer.imageryLayers.contains(managedBaseLayer)) return;
+                viewer.imageryLayers.remove(managedBaseLayer, true);
+                managedBaseLayer = null;
+                controls.status.textContent = "인터넷 연결 실패: 오프라인 지도로 자동 전환";
+                viewer.scene.requestRender();
+            });
             applyScreenSettings();
             viewer.scene.requestRender();
             controls.status.textContent = `${controls.baseMap.options[controls.baseMap.selectedIndex].text} 적용`;
@@ -375,6 +592,8 @@
 
     function show() {
         createDialog();
+        controls.menuOrientation.value = root.MainMenuLayout?.getOrientation?.() ||
+            (localStorage.getItem(MENU_ORIENTATION_KEY) === "vertical" ? "vertical" : "horizontal");
         controls.gpsCheckbox.checked = Boolean(root.gps?.isRunning?.());
         controls.status.textContent = controls.gpsCheckbox.checked ? "GPS 상태: ON" : "GPS 상태: OFF";
         dialog.hidden = false;
@@ -389,6 +608,11 @@
         if (dialog.hidden) show();
         else hide();
     }
+
+    document.addEventListener("gps-websocket-state-changed", function (event) {
+        if (event.detail?.state !== "connected") return;
+        hide();
+    });
 
     root.SettingDialog = Object.freeze({
         show,

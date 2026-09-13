@@ -320,16 +320,7 @@
             const group = selected?.customData?.groupEntity;
             if (group && viewer.entities.contains(group)) {
                 viewer.selectedEntity = group;
-                return;
             }
-            const editor = selected?._areaStyleEditor;
-            if (!editor || !global.AreaStylePanel?.edit) return;
-            global.AreaStylePanel.edit(editor.title, editor.style, () => {
-                const nextStyle = currentStyle();
-                editor.applyCallback(nextStyle);
-                editor.style = { ...nextStyle };
-                viewer.scene.requestRender();
-            });
         });
     }
 

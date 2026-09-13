@@ -94,13 +94,118 @@
         delete clone.isDrawingGroup;
         delete clone.isMilitaryGroup;
         delete clone.subEntities;
+        delete clone.renderedEntityIds;
         if (clone.textSettings) clone.textSettings = { ...clone.textSettings };
         if (clone.textBoxDimensions) clone.textBoxDimensions = { ...clone.textBoxDimensions };
         return clone;
     }
 
+    function translatedCustomData(customData, sourceAnchor, targetAnchor) {
+        const clone = cleanCustomData(customData);
+        const longitudeOffset = targetAnchor.longitude - sourceAnchor.longitude;
+        const latitudeOffset = targetAnchor.latitude - sourceAnchor.latitude;
+        if (Array.isArray(clone.positions)) clone.positions = clone.positions.map(point => ({...point,
+            lon:point.lon + Cesium.Math.toDegrees(longitudeOffset),lat:point.lat + Cesium.Math.toDegrees(latitudeOffset)}));
+        ['center', 'start', 'end', 'startPoint', 'endPoint'].forEach(key => {
+            if (Cesium.defined(clone[key])) clone[key] = translateCartesian(clone[key], sourceAnchor, targetAnchor);
+        });
+        if (Array.isArray(clone.customPoints)) {
+            clone.customPoints = clone.customPoints.map(position => translateCartesian(position, sourceAnchor, targetAnchor));
+        }
+        ['sizedGeometry', 'arcGeometry', 'triangleCenter'].forEach(key => {
+            if (!clone[key]) return;
+            clone[key] = { ...clone[key] };
+            if (Number.isFinite(Number(clone[key].longitude))) clone[key].longitude = Number(clone[key].longitude) + Cesium.Math.toDegrees(longitudeOffset);
+            if (Number.isFinite(Number(clone[key].latitude))) clone[key].latitude = Number(clone[key].latitude) + Cesium.Math.toDegrees(latitudeOffset);
+        });
+        if (Number.isFinite(Number(clone.centerLongitude))) clone.centerLongitude = Number(clone.centerLongitude) + Cesium.Math.toDegrees(longitudeOffset);
+        if (Number.isFinite(Number(clone.centerLatitude))) clone.centerLatitude = Number(clone.centerLatitude) + Cesium.Math.toDegrees(latitudeOffset);
+        return clone;
+    }
+
     function cloneGraphic(graphic) {
         return graphic?.clone ? graphic.clone() : graphic;
+    }
+
+    function translateCoordinateText(text, sourceAnchor, targetAnchor) {
+        if (typeof text !== 'string' || !text.trim()) return text;
+        const lonOffset = Cesium.Math.toDegrees(targetAnchor.longitude - sourceAnchor.longitude);
+        const latOffset = Cesium.Math.toDegrees(targetAnchor.latitude - sourceAnchor.latitude);
+        const pairs = text.split(',').map(part => part.trim().split(/\s+/).map(Number));
+        if (!pairs.length || pairs.some(pair => pair.length < 2 || !pair.every(Number.isFinite))) return text;
+        return pairs.map(pair => `${(pair[0] + lonOffset).toFixed(6)} ${(pair[1] + latOffset).toFixed(6)}`).join(', ');
+    }
+
+    function translatedEditorStyle(style, copyName, sourceAnchor, targetAnchor) {
+        const result = { ...(style || {}), shapeName: copyName };
+        const lonOffset = Cesium.Math.toDegrees(targetAnchor.longitude - sourceAnchor.longitude);
+        const latOffset = Cesium.Math.toDegrees(targetAnchor.latitude - sourceAnchor.latitude);
+        ['pointLongitude', 'circleLongitude', 'rectangleLongitude', 'arcLongitude', 'triangleLongitude'].forEach(key => {
+            if (Number.isFinite(Number(result[key]))) result[key] = Number(result[key]) + lonOffset;
+        });
+        ['pointLatitude', 'circleLatitude', 'rectangleLatitude', 'arcLatitude', 'triangleLatitude'].forEach(key => {
+            if (Number.isFinite(Number(result[key]))) result[key] = Number(result[key]) + latOffset;
+        });
+        if (result.coordinateText) result.coordinateText = translateCoordinateText(result.coordinateText, sourceAnchor, targetAnchor);
+        return result;
+    }
+
+    function parseCoordinateText(text, minimum = 2) {
+        const pairs = String(text || '').split(',').map(part => part.trim().split(/\s+/).map(Number));
+        if (pairs.length < minimum || pairs.some(pair => pair.length !== 2 || !pair.every(Number.isFinite) || Math.abs(pair[0]) > 180 || Math.abs(pair[1]) > 90)) return null;
+        return pairs.map(pair => Cesium.Cartesian3.fromDegrees(pair[0], pair[1], 0));
+    }
+
+    function applyEditableStyle(entity, nextStyle) {
+        const shapeCore = global.ShapeDrawingCore;
+        entity.name = String(nextStyle.shapeName || entity.name || '객체').trim();
+        entity.customData.displayName = entity.name;
+        const helpers = entity.customData?.subEntities || [];
+        const allPolylines = [entity, ...helpers].filter(item => item?.polyline);
+        if (entity.polygon) {
+            entity.polygon.material = shapeCore?.fillMaterial?.(nextStyle) || entity.polygon.material;
+            entity.polygon.fill = nextStyle.fillType !== 'none';
+        }
+        if (entity.ellipse) {
+            entity.ellipse.material = shapeCore?.fillMaterial?.(nextStyle) || entity.ellipse.material;
+            const longitude = Number(nextStyle.circleLongitude);
+            const latitude = Number(nextStyle.circleLatitude);
+            const circle = nextStyle.circleShapeType !== 'ellipse';
+            const major = circle ? Number(nextStyle.circleRadius) : Number(nextStyle.circleMajorRadius);
+            const minor = circle ? major : Number(nextStyle.circleMinorRadius);
+            if (Number.isFinite(longitude) && Number.isFinite(latitude)) entity.position = Cesium.Cartesian3.fromDegrees(longitude, latitude, 0);
+            if (Number.isFinite(major) && major > 0) entity.ellipse.semiMajorAxis = major;
+            if (Number.isFinite(minor) && minor > 0) entity.ellipse.semiMinorAxis = minor;
+        }
+        const editedPositions = nextStyle.coordinateGeometry ? parseCoordinateText(nextStyle.coordinateText, entity.polygon ? 3 : 2) : null;
+        if (editedPositions) {
+            if (entity.polygon) entity.polygon.hierarchy = new Cesium.PolygonHierarchy(editedPositions);
+            if (entity.polyline) entity.polyline.positions = entity.polygon ? [...editedPositions, editedPositions[0]] : editedPositions;
+            helpers.filter(item => item?.polyline).forEach(item => { item.polyline.positions = [...editedPositions, editedPositions[0]]; });
+            entity.customPoints = editedPositions.slice();
+        }
+        allPolylines.forEach(item => {
+            item.show = nextStyle.lineType !== 'none';
+            item.polyline.width = Math.max(1, Number(nextStyle.lineWidth) || 1);
+            item.polyline.material = shapeCore?.lineMaterial?.(nextStyle) || item.polyline.material;
+        });
+        document.dispatchEvent(new CustomEvent('drawing-entity-updated', { detail: { entity } }));
+        viewer.scene.requestRender();
+    }
+
+    function cloneAuxiliaryEntity(source, owner, sourceAnchor, targetAnchor) {
+        const child = viewer.entities.add({ show: propertyValue(source.show) !== false });
+        graphicNames.forEach(name => { if (source[name]) child[name] = cloneGraphic(source[name]); });
+        const position = propertyValue(source.position);
+        if (Cesium.defined(position)) child.position = translateCartesian(position, sourceAnchor, targetAnchor);
+        const positions = propertyValue(source.polyline?.positions);
+        if (child.polyline && Array.isArray(positions)) child.polyline.positions = positions.map(item => translateCartesian(item, sourceAnchor, targetAnchor));
+        const hierarchy = propertyValue(source.polygon?.hierarchy);
+        if (child.polygon && hierarchy) child.polygon.hierarchy = translateHierarchy(hierarchy, sourceAnchor, targetAnchor);
+        if (source.parent) child.parent = owner;
+        if (source._lineOwner) child._lineOwner = owner;
+        else child._drawingOwner = owner;
+        return child;
     }
 
     function escapeRegExp(text) {
@@ -150,8 +255,28 @@
                 targetAnchor.latitude + rectangle.north - sourceAnchor.latitude
             );
         }
-        copy.customData = cleanCustomData(source.customData);
+        copy.customData = translatedCustomData(source.customData, sourceAnchor, targetAnchor);
         if (copy.customData?.displayName) copy.customData.displayName = copy.name;
+        const auxiliaryCopies = (source.customData?.subEntities || [])
+            .filter(child => viewer.entities.contains(child))
+            .map(child => cloneAuxiliaryEntity(child, copy, sourceAnchor, targetAnchor));
+        if (auxiliaryCopies.length) copy.customData.subEntities = auxiliaryCopies;
+        if (source.customData?.renderedEntityIds) {
+            copy.customData.renderedEntityIds = source.customData.renderedEntityIds
+                .map(id => viewer.entities.getById(id)).filter(Boolean)
+                .map(child => cloneAuxiliaryEntity(child, copy, sourceAnchor, targetAnchor).id);
+        }
+        if (source._areaStyleEditor) {
+            const editorStyle = translatedEditorStyle(source._areaStyleEditor.style, copy.name, sourceAnchor, targetAnchor);
+            copy._areaStyleEditor = {
+                title: `${copy.name} 설정/편집`,
+                style: editorStyle,
+                applyCallback: nextStyle => {
+                    applyEditableStyle(copy, nextStyle);
+                    copy._areaStyleEditor.style = { ...nextStyle };
+                }
+            };
+        }
         document.dispatchEvent(new CustomEvent(isMilitary(copy) ? 'military-symbol-added' : 'drawing-entity-added', { detail: { entity: copy } }));
         return copy;
     }
@@ -198,10 +323,33 @@
         return true;
     }
 
+    function setPastePositionFromScreen(screenPosition) {
+        if (!screenPosition) return false;
+        const ray = viewer.camera.getPickRay(screenPosition);
+        pastePosition = ray && viewer.scene.globe.pick(ray, viewer.scene);
+        if (!Cesium.defined(pastePosition) && viewer.scene.pickPositionSupported) pastePosition = viewer.scene.pickPosition(screenPosition);
+        return Cesium.defined(pastePosition);
+    }
+
     function removeEntity(entity) {
+        (entity.customData?.renderedEntityIds || []).forEach(id => viewer.entities.removeById(id));
         (entity.customData?.subEntities || []).forEach(child => viewer.entities.remove(child));
         viewer.entities.remove(entity);
         document.dispatchEvent(new CustomEvent(isMilitary(entity) ? 'military-symbol-removed' : 'drawing-entity-removed', { detail: { entity } }));
+    }
+
+    function deleteObject(entity) {
+        if (!isManagedObject(entity) || !viewer.entities.contains(entity) || entity.customData?.isDrawingGroup || entity.customData?.isMilitaryGroup) return false;
+        const group = entity.customData?.groupEntity;
+        if (group?.customData) {
+            group.customData.groupMembers = (group.customData.groupMembers || []).filter(member => member !== entity);
+            group.customData.subEntities = (group.customData.subEntities || []).filter(child => child !== entity && !(entity.customData?.subEntities || []).includes(child));
+        }
+        viewer.selectedEntity = undefined;
+        removeEntity(entity);
+        if (group) document.dispatchEvent(new CustomEvent('drawing-group-changed',{detail:{groups:[group]}}));
+        viewer.scene.requestRender();
+        return true;
     }
 
     function deleteSelection() {
@@ -245,5 +393,12 @@
         if (!event.ctrlKey && !event.metaKey && (event.key === 'Delete' || event.key === 'Del') && deleteSelection()) event.preventDefault();
     });
 
-    global.DrawingClipboard = { copySelection, pasteSelection, deleteSelection };
+    global.DrawingClipboard = {
+        copySelection,
+        pasteSelection,
+        deleteSelection,
+        deleteObject,
+        setPastePositionFromScreen,
+        hasCopy: () => copiedEntities.length > 0
+    };
 })(window);

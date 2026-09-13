@@ -7,11 +7,13 @@ window.DialogCollisionManager = (function () {
 
   const GAP = 10;
   let scheduled = false;
+  let scheduledFrame = null;
   let correcting = false;
+  let dialogDragActive = false;
+  let correctionPendingAfterDrag = false;
   const initializedDialogs = new WeakSet();
 
   const protectedSelector = [
-    "#menu",
     ".dock-bar",
     "#dockPanel",
     ".layer-dialog-container.layer-docked"
@@ -222,31 +224,65 @@ window.DialogCollisionManager = (function () {
   }
 
   function correctAll() {
-    if (correcting) return;
+    if (correcting || dialogDragActive) {
+      correctionPendingAfterDrag = true;
+      return;
+    }
     correcting = true;
     const docks = protectedElements();
     const floatingDialogs = dialogs();
     syncResizeObservation(docks.concat(floatingDialogs));
-    const menuObstacles = docks.filter(function (dock) { return dock.id === "menu"; });
-    const placedDialogs = [];
     floatingDialogs.forEach(function (dialog) {
-      // Floating dialogs may use the full viewport width. A left/right docking
-      // bar can be covered, but it must never cover the active dialog.
-      placeNewDialog(dialog, menuObstacles, placedDialogs);
-      moveOutside(dialog, menuObstacles.concat(placedDialogs));
+      // 다이얼로그 간 위치 충돌 및 자동 재배치를 하지 않는다.
+      // 각 모듈이 지정한 생성/이동 좌표를 그대로 유지하고 표시 계층만 관리한다.
+      initializedDialogs.add(dialog);
       keepAboveDockingBars(dialog, docks);
-      placedDialogs.push(dialog);
     });
     correcting = false;
   }
 
   function schedule() {
+    if (dialogDragActive) {
+      correctionPendingAfterDrag = true;
+      return;
+    }
     if (scheduled || correcting) return;
     scheduled = true;
-    requestAnimationFrame(function () {
+    scheduledFrame = requestAnimationFrame(function () {
+      scheduledFrame = null;
       scheduled = false;
       correctAll();
     });
+  }
+
+  function managedDialogAt(target) {
+    if (!(target instanceof Node)) return null;
+    return dialogs().find(function (dialog) { return dialog === target || dialog.contains(target); }) || null;
+  }
+
+  function beginDialogDrag(event) {
+    if (event.button !== undefined && event.button !== 0) return;
+    const dialog = managedDialogAt(event.target);
+    if (!dialog) return;
+    dialogDragActive = true;
+    correctionPendingAfterDrag = false;
+    if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
+    scheduledFrame = null;
+    scheduled = false;
+    document.dispatchEvent(new CustomEvent("dialog-drag-state-changed", {
+      detail: { active: true, dialog: dialog }
+    }));
+  }
+
+  function endDialogDrag() {
+    if (!dialogDragActive) return;
+    dialogDragActive = false;
+    correctionPendingAfterDrag = false;
+    document.dispatchEvent(new CustomEvent("dialog-drag-state-changed", {
+      detail: { active: false }
+    }));
+    // 드래그 최종 위치를 기준으로 정확히 한 번만 보정한다.
+    schedule();
   }
 
   function scheduleSettledLayout() {
@@ -282,16 +318,17 @@ window.DialogCollisionManager = (function () {
   }
 
   window.addEventListener("resize", scheduleSettledLayout);
-  window.addEventListener("mouseup", scheduleSettledLayout, true);
-  window.addEventListener("pointerup", scheduleSettledLayout, true);
-  window.addEventListener("touchend", scheduleSettledLayout, true);
+  document.addEventListener("pointerdown", beginDialogDrag, true);
+  window.addEventListener("pointerup", endDialogDrag, true);
+  window.addEventListener("pointercancel", endDialogDrag, true);
   document.addEventListener("DOMContentLoaded", scheduleSettledLayout);
   document.addEventListener("dialog-opened", scheduleSettledLayout);
-  document.addEventListener("click", scheduleSettledLayout, true);
+  document.addEventListener("click", schedule, true);
 
   return {
     correctAll: correctAll,
     schedule: schedule,
+    isDragging: function () { return dialogDragActive; },
     register: function (element) {
       if (element instanceof HTMLElement) {
         element.setAttribute("role", element.getAttribute("role") || "dialog");

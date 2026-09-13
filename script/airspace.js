@@ -404,14 +404,20 @@ window.airspace = (function () {
   }
 
   function applyPanel() {
-    if (!selectedId) return;
+    if (!selectedId || !shapes.has(selectedId)) {
+      setStatus("속성을 변경할 공역 도형을 먼저 선택하세요.");
+      return;
+    }
     const old = shapes.get(selectedId);
     const values = panelValues();
     ["name", "baseHeight", "topHeight", "width", "radius", "color", "opacity"].forEach(function (key) {
       old[key] = values[key];
     });
     renderShape(old);
+    showEditHandles(shapes.get(selectedId));
     syncPanel();
+    viewer.scene.requestRender();
+    setStatus("선택한 공역 도형의 속성을 변경했습니다.");
   }
 
   function syncPanel() {
@@ -474,19 +480,19 @@ window.airspace = (function () {
   function createToolbar() {
     if (document.getElementById("airspace-editor")) return;
     const style = document.createElement("style");
-    style.textContent = "#airspace-editor{position:absolute;z-index:1000;top:12px;left:12px;width:320px;background:rgba(25,29,34,.94);color:#fff;padding:12px;border-radius:8px;font:13px/1.35 Arial,sans-serif;box-shadow:0 2px 14px #0008}#airspace-editor .as-header{display:flex;align-items:center;justify-content:space-between;margin:-12px -12px 8px;padding:9px 10px 8px 12px;border-bottom:1px solid #ffffff2b;cursor:move;user-select:none}#airspace-editor .as-close{font-size:18px;line-height:20px;width:28px;height:26px;padding:0;background:#552f35;border-color:#8d5961;cursor:pointer}#airspace-editor .as-row{display:flex;gap:6px;margin:6px 0;flex-wrap:wrap}#airspace-editor button{background:#394651;color:#fff;border:1px solid #697985;border-radius:4px;padding:5px 8px;cursor:pointer}#airspace-editor button:hover{background:#247ba0}#airspace-editor label{display:flex;align-items:center;gap:5px;flex:1;min-width:140px}#airspace-editor input{width:82px;background:#15191d;color:#fff;border:1px solid #65717b;border-radius:3px;padding:4px}#airspace-editor input[type=text]{width:220px}#airspace-editor input[type=color]{width:38px;padding:1px}#as-status{color:#ffd166;min-height:18px}#as-selected{color:#8ee3ef}";
+    style.textContent = "#airspace-editor{position:absolute;z-index:1000;top:12px;left:12px;width:470px;max-width:calc(100vw - 24px);box-sizing:border-box;background:rgba(25,29,34,.94);color:#fff;padding:12px;border-radius:8px;font:13px/1.35 Arial,sans-serif;box-shadow:0 2px 14px #0008}#airspace-editor .as-header{display:flex;align-items:center;justify-content:space-between;margin:-12px -12px 8px;padding:9px 10px 8px 12px;border-bottom:1px solid #ffffff2b;cursor:move;user-select:none}#airspace-editor .as-close{font-size:18px;line-height:20px;width:28px;height:26px;padding:0;background:#552f35;border-color:#8d5961;cursor:pointer}#airspace-editor .as-row{display:flex;gap:6px;margin:6px 0;flex-wrap:wrap}#airspace-editor .as-button-row{flex-wrap:nowrap}#airspace-editor button{background:#394651;color:#fff;border:1px solid #697985;border-radius:4px;padding:5px 8px;cursor:pointer;white-space:nowrap}#airspace-editor button:hover{background:#247ba0}#airspace-editor label{display:flex;align-items:center;gap:5px;flex:1;min-width:140px}#airspace-editor input{width:82px;background:#15191d;color:#fff;border:1px solid #65717b;border-radius:3px;padding:4px}#airspace-editor input[type=text]{width:360px}#airspace-editor input[type=color]{width:38px;padding:1px}#as-status{color:#ffd166;min-height:18px}#as-selected{color:#8ee3ef}";
     document.head.appendChild(style);
     const box = document.createElement("div");
     box.id = "airspace-editor";
     box.style.display = "none";
     box.innerHTML = '<div class="as-header"><strong>공역 도형 편집기</strong><button class="as-close" type="button" title="닫기" aria-label="공역 편집기 닫기">&times;</button></div>' +
-      '<div class="as-row"><button data-draw="point">점/기둥</button><button data-draw="line">라인</button><button data-draw="polyline">폴리라인</button><button data-draw="polygon">폴리곤</button><button data-draw="rectangle">사각형</button><button data-draw="circle">원</button></div>' +
+      '<div class="as-row as-button-row"><button data-draw="point">점/기둥</button><button data-draw="line">라인</button><button data-draw="polyline">폴리라인</button><button data-draw="polygon">폴리곤</button><button data-draw="rectangle">사각형</button><button data-draw="circle">원</button></div>' +
       '<div class="as-row"><label>이름 <input id="as-name" type="text" value="새 공역"></label></div>' +
       '<div class="as-row"><label>하단 높이(m) <input id="as-base" type="number" value="0"></label><label>상단 높이(m) <input id="as-top" type="number" value="1000"></label></div>' +
       '<div class="as-row"><label>라인 폭(m) <input id="as-width" type="number" min="1" value="80"></label><label>기둥 반경(m) <input id="as-radius" type="number" min="1" value="500"></label></div>' +
       '<div class="as-row"><label>색상 <input id="as-color" type="color" value="#00bfff"></label><label>투명도 <input id="as-opacity" type="number" min="0.05" max="1" step="0.05" value="0.35"></label></div>' +
       '<div id="as-selected">선택된 도형 없음</div><div id="as-status">선택 또는 그리기 도구를 사용하세요.</div>' +
-      '<div class="as-row"><button id="as-apply">속성 적용</button><button id="as-delete">선택 삭제</button><button id="as-save">JSON 저장</button><button id="as-load">JSON 불러오기</button><button id="as-clear">전체 삭제</button><input id="as-file" type="file" accept="application/json,.json" hidden></div>';
+      '<div class="as-row as-button-row"><button id="as-apply">속성 변경</button><button id="as-delete">선택 삭제</button><button id="as-save">JSON 저장</button><button id="as-load">JSON 불러오기</button><button id="as-clear">전체 삭제</button><input id="as-file" type="file" accept="application/json,.json" hidden></div>';
     const container = viewer.container || document.body;
     container.appendChild(box);
     box.querySelectorAll("[data-draw]").forEach(function (button) {

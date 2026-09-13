@@ -443,7 +443,6 @@
             }
             viewer.selectedEntity = entity;
             selectedTextEntity = entity;
-            editSelectedText(entity, true);
         }, global.Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
         if (!keyboardBound) {
             keyboardBound = true;
@@ -681,6 +680,7 @@
         toggle,
         activate: open,
         deactivate: deactivateHandler,
+        editEntity: entity => editSelectedText(entity, true),
         setRotation,
         reset,
         isActive: () => active

@@ -17,6 +17,27 @@ window.LayerManager = (function () {
   let dialogResizeObserver = null;
   let opacityRefreshTimer = null;
 
+  function updateLocalMapProgress(state = {}) {
+    const box = dialogContainer?.querySelector('.local-map-load-progress');
+    if (!box) return;
+    const total = Math.max(0, Number(state.total) || 0);
+    const completed = Math.max(0, Math.min(total, Number(state.completed) || 0));
+    const percent = total ? Math.round((completed / total) * 100) : 0;
+    box.hidden = state.hidden === true;
+    box.querySelector('progress').max = Math.max(1, total);
+    box.querySelector('progress').value = completed;
+    const status = box.querySelector('.local-map-load-status');
+    const stageLabel = state.stage === 'geojson'
+      ? 'GeoJSON 생성 중'
+      : state.stage === 'render'
+        ? '지도 표시 중'
+        : '로딩';
+    if (state.cancelled) status.textContent = `로딩 중단됨 (${completed}/${total})`;
+    else if (state.done) status.textContent = `로딩 완료 (${completed}/${total})`;
+    else status.textContent = `${stageLabel} ${percent}% (${completed}/${total})${state.current ? ` · ${state.current}` : ''}`;
+    box.querySelector('.local-map-load-cancel').disabled = Boolean(state.done || state.cancelled || !total);
+  }
+
   function destroyVueVm(vm) {
     if (vm && typeof vm.$destroy === 'function') vm.$destroy();
   }
@@ -113,6 +134,25 @@ window.LayerManager = (function () {
 
   const militaryRenderLayers = new Map();
   let militaryRenderSyncInstalled = false;
+
+  window.MilitarySymbolRender = window.MilitarySymbolRender || {};
+  window.MilitarySymbolRender.getScreenPosition = function (entity, result) {
+    const viewer = window.CesiumViewer;
+    const layer = entity ? militaryRenderLayers.get(entity.id) : null;
+    if (!viewer || !layer) return undefined;
+    const renderedBillboard = viewer.scene.mode === Cesium.SceneMode.SCENE2D
+      ? layer.billboard2D
+      : layer.billboard;
+    const activeCollectionVisible = viewer.scene.mode === Cesium.SceneMode.SCENE2D
+      ? layer.collection2D?.show
+      : layer.collection?.show;
+    if (!renderedBillboard || !renderedBillboard.show || !activeCollectionVisible) return undefined;
+    try {
+      return renderedBillboard.computeScreenSpacePosition(viewer.scene, result);
+    } catch (error) {
+      return undefined;
+    }
+  };
 
   function propertyValue(property, time) {
     return property?.getValue ? property.getValue(time) : property;
@@ -247,7 +287,10 @@ window.LayerManager = (function () {
     if (!viewer || !entity?.billboard || !/^[A-Z0-9*\-]{15}$/.test(sidc) || !window.ms?.Symbol) return false;
     try {
       const symbolOptions = { size: 60, ...(entity.customData?.symbolOptions || {}) };
-      const svg = new window.ms.Symbol(sidc, symbolOptions).asSVG();
+      const native=entity.customData?.symbolMetadata?.renderer === 'icop-svg';
+      const rendered=native ? window.IcopSvgRenderer.build(entity.customData.symbolMetadata,sidc,symbolOptions,entity.customData.icopEditor?.values||{}) : null;
+      const svg = rendered ? rendered.svg : new window.ms.Symbol(sidc, symbolOptions).asSVG();
+      if(rendered)entity.customData.billboardScreenSize={width:rendered.width,height:rendered.height};
       const imageUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
       entity.billboard.image = imageUrl;
       const renderLayer = militaryRenderLayers.get(entity.id);
@@ -550,6 +593,11 @@ window.LayerManager = (function () {
             }
             return;
           }
+          if (isMilitary && window.IcopSymbolEditor) {
+            this.closeContextMenu();
+            window.IcopSymbolEditor.openEntity(item.entity);
+            return;
+          }
           const nextName = window.prompt('객체 이름을 입력하세요.', item.name);
           if (nextName === null) return this.closeContextMenu();
           const trimmedName = nextName.trim();
@@ -747,11 +795,19 @@ window.LayerManager = (function () {
           expandControl,
           h('input', {
             class: 'layer-checkbox',
-            attrs: { type: 'checkbox', id: `chk_${this.node.id}` },
+            attrs: {
+              type: 'checkbox',
+              id: `chk_${this.node.id}`,
+              disabled: Boolean(this.node.disabled),
+              title: this.node.mappingDescription || ''
+            },
             domProps: { checked: Boolean(this.node.checked), indeterminate: Boolean(this.node.indeterminate) },
             on: { change: this.changeChecked }
           }),
-          this.node.name ? h('label', { class: 'layer-label', attrs: { for: `chk_${this.node.id}` } }, this.node.name) : null
+          this.node.name ? h('label', {
+            class: 'layer-label',
+            attrs: { for: `chk_${this.node.id}`, title: this.node.mappingDescription || '' }
+          }, this.node.name) : null
         ]);
         const nested = hasChildren && this.node.expanded !== false
           ? h('ul', { class: ['layer-tree-list', 'layer-tree-children'] }, children.map(child =>
@@ -924,6 +980,7 @@ window.LayerManager = (function () {
         getText('Visible').toUpperCase() === 'TRUE';
 
       const geometryStyleName = getText('GeometryStyleName');
+      const labelStyleName = getText('LabelStyleName');
       const styleTableName = getText('StyleTableName');
       const styleRules = (styleTablesByName.get(styleTableName) || []).map(rule => ({
         value: rule.value,
@@ -954,7 +1011,12 @@ window.LayerManager = (function () {
         styleTableName: styleTableName,
         styleColumnName: getText('StyleColumnName'),
         geometryStyleName: geometryStyleName,
-        styleDefinition: stylesByName.get(geometryStyleName) || null,
+        labelStyleName: labelStyleName,
+        labelColumnName: getText('LabelColumnName'),
+        styleDefinition:
+          stylesByName.get(geometryStyleName) ||
+          stylesByName.get(labelStyleName) ||
+          null,
         styleRules: styleRules,
         useScale:
           getText('UseScale').toUpperCase() === 'TRUE',
@@ -1091,10 +1153,47 @@ window.LayerManager = (function () {
 
     try {
       const baseMapFileName = options.baseMapFile || 'base_COPMap_local.xml';
-      const baseMapChildren = parseFdbLayers(
+      const parsedBaseMapChildren = parseFdbLayers(
         await fetchXmlText(`${dataPath}/${baseMapFileName}`, encoding),
         { idPrefix: 'basemap', fileName: baseMapFileName, mapType: 'BaseMap', scaleLabel: '' }
       );
+      const shapeResponse = await fetch('/api/original-shapes', { cache: 'no-store' });
+      if (!shapeResponse.ok) throw new Error(`SHAPE 목록 요청 실패 (${shapeResponse.status})`);
+      const shapePayload = await shapeResponse.json();
+      const availableShapes = new Map((shapePayload.layers || []).map(item => [
+        String(item.name).toUpperCase(),
+        String(item.name)
+      ]));
+      const sourceAliases = {
+        sudo001: 'PSUDO_KOR',
+        sudo002: 'PSUDO_ENG',
+        kukga001: 'PKUKGA_KOR',
+        kukga002: 'PKUKGA_ENG'
+      };
+      const mapExistingShapes = nodes => nodes.map(node => {
+        if (node.children?.length) {
+          const children = mapExistingShapes(node.children);
+          return { ...node, checked: false, children };
+        }
+        const sourceKey = String(node.source || '').toLowerCase();
+        const requestedName = sourceAliases[sourceKey] || sourceKey.toUpperCase();
+        const shapeName = availableShapes.get(requestedName.toUpperCase());
+        return shapeName
+          ? {
+              ...node,
+              checked: false,
+              localShapeName: shapeName,
+              mappingDescription: `${node.source} → ${shapeName}.shp`
+            }
+          : {
+              ...node,
+              name: `${node.name} (파일 없음: ${requestedName}.shp)`,
+              checked: false,
+              disabled: true,
+              mappingDescription: `${node.source} → 파일 없음`
+            };
+      });
+      const baseMapChildren = mapExistingShapes(parsedBaseMapChildren);
       const markBaseMapNode = node => {
         node.baseMapLayer = true;
         if (typeof node.id === 'string') node.id = node.id.replace(/^fdb_/, 'basemap_');
@@ -1104,15 +1203,22 @@ window.LayerManager = (function () {
       const baseMapRoot = {
         id: 'basemap_root',
         name: 'BaseMap',
-        checked: baseMapChildren.length > 0 && baseMapChildren.every(node => node.checked),
+        checked: false,
         expanded: true,
         baseMapLayer: true,
         children: baseMapChildren
       };
-      const previousIndex = layersData.findIndex(layer => layer.id === 'basemap_root');
-      if (previousIndex >= 0) layersData.splice(previousIndex, 1);
+      layersData = layersData.filter(layer => layer.id !== 'basemap_root' && layer.id !== 'local_map_root');
+      const localMapRoot = {
+        id: 'local_map_root',
+        name: '로컬지도',
+        checked: false,
+        expanded: true,
+        baseMapLayer: true,
+        children: [baseMapRoot]
+      };
       const fdbIndex = layersData.findIndex(layer => layer.id === 'fdb_root');
-      layersData.splice(fdbIndex >= 0 ? fdbIndex + 1 : 0, 0, baseMapRoot);
+      layersData.splice(fdbIndex >= 0 ? fdbIndex + 1 : 0, 0, localMapRoot);
     } catch (error) {
       errors.push({ fileName: options.baseMapFile || 'base_COPMap_local.xml', error });
       console.error('[LayerManager] BaseMap XML 로딩 실패:', error);
@@ -1219,8 +1325,8 @@ window.LayerManager = (function () {
     }
 
     if (isBaseMapNode) {
-      if (!window.mapDrawing || typeof window.mapDrawing.fdb !== 'function') {
-        console.warn('[LayerManager] BaseMap 레이어를 처리할 mapDrawing.fdb 함수를 찾을 수 없습니다.');
+      if (!window.mapDrawing || typeof window.mapDrawing.localShapes !== 'function') {
+        console.warn('[LayerManager] BaseMap 레이어를 처리할 mapDrawing.localShapes 함수를 찾을 수 없습니다.');
         return;
       }
       const layerNodes = [];
@@ -1229,9 +1335,22 @@ window.LayerManager = (function () {
         (treeNode.children || []).forEach(collectBaseMapLayers);
       };
       collectBaseMapLayers(node);
-      window.mapDrawing.fdb(layerNodes, isChecked, { concurrency: 6 }).then(result => {
+      updateLocalMapProgress({ completed: 0, total: layerNodes.length, current: '', cancelled: false });
+      window.mapDrawing.localShapes(layerNodes, isChecked, {
+        concurrency: 2,
+        onProgress: progress => updateLocalMapProgress(progress)
+      }).then(result => {
+        updateLocalMapProgress({
+          completed: result.cancelled ? result.loaded + result.failed : layerNodes.length,
+          total: layerNodes.length,
+          cancelled: result.cancelled,
+          done: !result.cancelled
+        });
         if (result.failed > 0) console.warn(`[LayerManager] BaseMap: ${result.loaded}개 성공, ${result.failed}개 실패`);
-      }).catch(error => console.error('[LayerManager] BaseMap 처리 실패:', error));
+      }).catch(error => {
+        updateLocalMapProgress({ completed: 0, total: layerNodes.length, cancelled: true });
+        console.error('[LayerManager] BaseMap 처리 실패:', error);
+      });
       return;
     }
 
@@ -1540,6 +1659,14 @@ window.LayerManager = (function () {
       .layer-tab-panels { flex:1; min-height:0; display:flex; }
       .layer-tab-panel { display:none; flex:1; min-width:0; min-height:0; }
       .layer-tab-panel.active { display:flex; flex-direction:column; }
+
+      .local-map-load-progress { margin:0 0 9px; padding:8px; border:1px solid #475569; border-radius:7px; background:#1f2937; color:#e5e7eb; }
+      .local-map-load-progress[hidden] { display:none; }
+      .local-map-load-progress-row { display:flex; align-items:center; gap:7px; }
+      .local-map-load-progress progress { flex:1; min-width:0; height:11px; accent-color:#0ea5e9; }
+      .local-map-load-status { margin-top:5px; overflow:hidden; color:#bae6fd; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+      .local-map-load-cancel { padding:4px 8px; border:1px solid #ef4444; border-radius:4px; background:#7f1d1d; color:#fff; font-size:11px; cursor:pointer; }
+      .local-map-load-cancel:disabled { opacity:.45; cursor:default; }
 
       .layer-dialog-body {
         flex: 1;
@@ -1870,6 +1997,25 @@ window.LayerManager = (function () {
     const panels = document.createElement('div');
     panels.className = 'layer-tab-panels';
 
+    const localMapProgress = document.createElement('div');
+    localMapProgress.className = 'local-map-load-progress';
+    localMapProgress.hidden = true;
+    localMapProgress.innerHTML = `
+      <div class="local-map-load-progress-row">
+        <progress max="1" value="0"></progress>
+        <button class="local-map-load-cancel" type="button">로딩 중단</button>
+      </div>
+      <div class="local-map-load-status">대기 중</div>`;
+    localMapProgress.querySelector('.local-map-load-cancel').addEventListener('click', () => {
+      window.mapDrawing?.cancelLocalShapeLoad?.();
+      const progress = localMapProgress.querySelector('progress');
+      updateLocalMapProgress({
+        completed: progress.value,
+        total: progress.max,
+        cancelled: true
+      });
+    });
+
     const mapPanel = document.createElement('div');
     mapPanel.className = 'layer-tab-panel layer-dialog-body active';
     mapPanel.dataset.tabPanel = 'map';
@@ -1909,6 +2055,7 @@ window.LayerManager = (function () {
 
     dialogContainer.appendChild(header);
     dialogContainer.appendChild(tabs);
+    dialogContainer.appendChild(localMapProgress);
     dialogContainer.appendChild(panels);
 
     if (window.Vue) vueTreeVm = mountVueLayerTree(mapTreeHost);
@@ -2172,18 +2319,6 @@ window.LayerManager = (function () {
 
     renderDrawingVisibilityList(panel, viewer);
 
-    if (viewer?.imageryLayers) {
-      // 0번은 Cesium 기본 영상 레이어(영상 레이어 1)이므로 투명도 관리에서 제외한다.
-      for (let i = 1; i < viewer.imageryLayers.length; i += 1) {
-        const layer = viewer.imageryLayers.get(i);
-        controls.push({
-          name: layer._rasterInfo?.name || layer.imageryProvider?.layers || `영상 레이어 ${i + 1}`,
-          value: Number(layer.alpha ?? 1),
-          setValue: value => { layer.alpha = value; }
-        });
-      }
-    }
-
     if (viewer?.dataSources) {
       for (let i = 0; i < viewer.dataSources.length; i += 1) {
         const source = viewer.dataSources.get(i);
@@ -2397,6 +2532,16 @@ window.LayerManager = (function () {
     document.documentElement.style.setProperty('--layer-manager-dock-width', `${dockWidth}px`);
   }
 
+  function refreshOverlayLayout() {
+    // 도킹 폭/축소 CSS가 실제 레이아웃에 반영된 뒤 정확한 중앙을 계산한다.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.MainMenuLayout?.center?.();
+        window.StatusBarControl?.center?.();
+      });
+    });
+  }
+
   function setDockPosition(position) {
     if (!dialogContainer) return;
     if (!dockPosition && position) saveFloatingBounds();
@@ -2435,6 +2580,7 @@ window.LayerManager = (function () {
     document.dispatchEvent(new CustomEvent('layer-dock-layout-changed', {
       detail: { position: dockPosition, collapsed: isDockCollapsed }
     }));
+    refreshOverlayLayout();
   }
 
   function cycleDockPosition() {
@@ -2455,6 +2601,7 @@ window.LayerManager = (function () {
     document.dispatchEvent(new CustomEvent('layer-dock-layout-changed', {
       detail: { position: dockPosition, collapsed: isDockCollapsed }
     }));
+    refreshOverlayLayout();
   }
 
   function updateDockButtons() {
@@ -2518,6 +2665,8 @@ window.LayerManager = (function () {
       checkbox.className = 'layer-checkbox';
       checkbox.id = `chk_${node.id}`;
       checkbox.checked = Boolean(node.checked);
+      checkbox.disabled = Boolean(node.disabled);
+      checkbox.title = node.mappingDescription || '';
 
       checkbox.addEventListener(
         'change',
@@ -2549,6 +2698,7 @@ window.LayerManager = (function () {
         label.className = 'layer-label';
         label.htmlFor = `chk_${node.id}`;
         label.textContent = node.name;
+        label.title = node.mappingDescription || '';
 
         content.appendChild(label);
       }
@@ -2860,6 +3010,10 @@ window.LayerManager = (function () {
         dialogContainer
       );
       requestAnimationFrame(syncCompassWithDock);
+      document.dispatchEvent(new CustomEvent('layer-dock-layout-changed', {
+        detail: { position: dockPosition, collapsed: isDockCollapsed, visible: true }
+      }));
+      refreshOverlayLayout();
     }
   }
 
@@ -2875,6 +3029,10 @@ window.LayerManager = (function () {
         dialogContainer
       );
       syncCompassWithDock();
+      document.dispatchEvent(new CustomEvent('layer-dock-layout-changed', {
+        detail: { position: dockPosition, collapsed: isDockCollapsed, visible: false }
+      }));
+      refreshOverlayLayout();
     }
   }
 

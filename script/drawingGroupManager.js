@@ -7,6 +7,7 @@
     let dragging = false;
     let selectedEntities = [];
     let selectedGroup = null;
+    let deleteTarget = null;
     let groupSequence = 0;
 
     if (getComputedStyle(viewer.container).position === 'static') viewer.container.style.position = 'relative';
@@ -20,7 +21,7 @@
 
     const contextMenu = document.createElement('div');
     contextMenu.style.cssText = 'display:none;position:absolute;z-index:1300;min-width:125px;padding:5px;border:1px solid #475569;border-radius:6px;background:#1f2937;box-shadow:0 8px 22px rgba(0,0,0,.45);';
-    contextMenu.innerHTML = '<button data-action="edit">편집</button><button data-action="group">그룹</button><button data-action="ungroup">그룹해제</button><div class="drawing-layer-position"><button data-action="layer-position">레이어 위치 ▸</button><div class="drawing-layer-submenu"><button data-action="layer-top">맨 위</button><button data-action="layer-bottom">맨 아래</button></div></div>';
+    contextMenu.innerHTML = '<button data-action="edit">편집</button><button data-action="copy">복사</button><button data-action="paste">붙여넣기</button><button data-action="delete">삭제</button><button data-action="group">그룹</button><button data-action="ungroup">그룹해제</button><div class="drawing-layer-position"><button data-action="layer-position">레이어 위치 ▸</button><div class="drawing-layer-submenu"><button data-action="layer-top">맨 위</button><button data-action="layer-bottom">맨 아래</button></div></div>';
     contextMenu.querySelectorAll('button').forEach(button => { button.style.cssText = 'display:block;width:100%;padding:7px 12px;border:0;border-radius:4px;background:transparent;color:#fff;text-align:left;cursor:pointer;'; });
     const layerPosition = contextMenu.querySelector('.drawing-layer-position');
     const layerSubmenu = contextMenu.querySelector('.drawing-layer-submenu');
@@ -57,7 +58,7 @@
             <option value="I">사단</option><option value="J">군단</option><option value="K">야전군</option>
             <option value="L">집단군</option><option value="M">지역/전구</option><option value="N">사령부</option>
           </select>
-          <label for="mse-size">부호 크기</label><input id="mse-size" name="size" type="number" min="20" max="200" step="1" />
+          <label for="mse-size">부호 크기</label><input id="mse-size" name="size" type="number" min="7" max="200" step="1" />
           <label for="mse-designation">고유명칭</label><input id="mse-designation" name="uniqueDesignation" maxlength="40" />
           <label for="mse-formation">상급부대</label><input id="mse-formation" name="higherFormation" maxlength="40" />
           <label for="mse-quantity">수량</label><input id="mse-quantity" name="quantity" type="number" min="0" max="999999" step="1" />
@@ -96,17 +97,42 @@
 
     function entityScreenBounds(entity) {
         if (!entity || entity.show === false) return null;
+        const exactBounds = global.MilitarySelectionBounds?.get(entity);
+        if (exactBounds) return exactBounds;
         const time = viewer.clock.currentTime;
         const read = property => property?.getValue ? property.getValue(time) : property;
         const position = read(entity.position);
-        const screen = Cesium.defined(position) ? Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, position) : null;
+        let screen = Cesium.defined(position) ? Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, position) : null;
+        const militaryRenderedScreen = (entity.customData?.militarySymbol || entity.customData?.source === 'unifiedControlPanel')
+            ? window.MilitarySymbolRender?.getScreenPosition?.(entity)
+            : null;
+        if (Cesium.defined(militaryRenderedScreen)) screen = militaryRenderedScreen;
+        const graphic = entity.point || entity.billboard;
+        const heightReference = graphic ? read(graphic.heightReference) : null;
+        if (!Cesium.defined(militaryRenderedScreen) && graphic && Cesium.defined(heightReference) && heightReference !== Cesium.HeightReference.NONE) {
+            const renderedSphere = new Cesium.BoundingSphere();
+            if (viewer.dataSourceDisplay.getBoundingSphere(entity, false, renderedSphere) === Cesium.BoundingSphereState.DONE) {
+                screen = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, renderedSphere.center) || screen;
+            }
+        }
+        if (Cesium.defined(screen) && entity.point) {
+            const pixelSize = Number(read(entity.point.pixelSize)) || 10;
+            const outlineWidth = Number(read(entity.point.outlineWidth)) || 0;
+            const diameter = Math.max(8, pixelSize + outlineWidth * 2);
+            return {
+                left: screen.x - diameter / 2,
+                top: screen.y - diameter / 2,
+                right: screen.x + diameter / 2,
+                bottom: screen.y + diameter / 2
+            };
+        }
         if (Cesium.defined(screen) && entity.billboard) {
             const scale = Number(read(entity.billboard.scale)) || 1;
             const savedSize = entity.customData?.billboardScreenSize;
             const image = read(entity.billboard.image);
             const width = Math.max(20, Number(savedSize?.width) || (Number(read(entity.billboard.width)) || Number(image?.width) || 60) * scale);
             const height = Math.max(20, Number(savedSize?.height) || (Number(read(entity.billboard.height)) || Number(image?.height) || 60) * scale);
-            const pixelOffset = read(entity.billboard.pixelOffset) || Cesium.Cartesian2.ZERO;
+            const pixelOffset = Cesium.defined(militaryRenderedScreen) ? Cesium.Cartesian2.ZERO : (read(entity.billboard.pixelOffset) || Cesium.Cartesian2.ZERO);
             const centerX = screen.x + pixelOffset.x;
             const centerY = screen.y + pixelOffset.y;
             if (entity.customData?.textDrawing) {
@@ -166,6 +192,7 @@
             viewer.container.appendChild(box);
             return;
         }
+        if (selectedEntities.length === 1 && viewer.selectedEntity) return;
         selectedEntities.forEach(entity => {
             const rect = entityScreenBounds(entity);
             if (!rect) return;
@@ -250,10 +277,20 @@
         return isMilitaryEntity(entity) && !entity.customData?.isMilitaryGroup ? entity : null;
     }
 
+    function editableOpacityEntity() {
+        if (selectedGroup || selectedEntities.length !== 1) return null;
+        const entity = selectedEntities[0];
+        if (!entity || isMilitaryEntity(entity) || entity.customData?.groupId) return null;
+        const drawingType = entity.customData?.drawingType;
+        return entity._areaStyleEditor || drawingType === 'line' || entity.customData?.textDrawing
+            ? entity
+            : null;
+    }
+
     function loadSymbolCatalog() {
         if (symbolCatalog) return Promise.resolve(symbolCatalog);
         if (!symbolCatalogPromise) {
-            const url = new URL('data1/alldata-2525c-ko.json', document.baseURI).href;
+            const url = new URL('icops/alldata-2525c-ko.json', document.baseURI).href;
             symbolCatalogPromise = fetch(url, { cache: 'no-store' })
                 .then(response => {
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -339,7 +376,7 @@
             return raw === '' ? undefined : Number(raw);
         };
         return {
-            size: Math.max(20, Math.min(200, numberValue('size') || 60)),
+            size: Math.max(7, Math.min(200, numberValue('size') || 60)),
             uniqueDesignation: value('uniqueDesignation'),
             higherFormation: value('higherFormation'),
             quantity: numberValue('quantity'),
@@ -385,6 +422,7 @@
         contextMenu.style.display = 'none';
         layerSubmenu.style.display = 'none';
         if (!entity) return;
+        if (global.IcopSymbolEditor) return global.IcopSymbolEditor.openEntity(entity);
         editorEntity = entity;
         const options = entity.customData?.symbolOptions || {};
         const set = (name, value) => { editorPanel.querySelector(`[name="${name}"]`).value = value ?? ''; };
@@ -412,7 +450,55 @@
         editorPanel.querySelector('[name="name"]').focus();
     }
 
-    contextMenu.querySelector('[data-action=edit]').addEventListener('click', openMilitaryEditor);
+    async function openSelectedEditor() {
+        contextMenu.style.display = 'none';
+        layerSubmenu.style.display = 'none';
+        const militaryEntity = editableMilitaryEntity();
+        if (militaryEntity) {
+            await openMilitaryEditor();
+            return;
+        }
+
+        const entity = editableOpacityEntity();
+        if (!entity) return;
+        if (entity.customData?.textDrawing) {
+            global.TextDrawing?.editEntity?.(entity);
+            return;
+        }
+        if (entity.customData?.drawingType === 'line') {
+            global.lineDrawing?.editEntity?.(entity);
+            return;
+        }
+        const editor = entity._areaStyleEditor;
+        if (!editor || !global.AreaStylePanel?.edit) return;
+        global.AreaStylePanel.edit(editor.title, editor.style, () => {
+            const nextStyle = global.AreaStylePanel.getStyle();
+            editor.style = { ...nextStyle };
+            editor.applyCallback(nextStyle);
+            viewer.scene.requestRender();
+        });
+    }
+
+    contextMenu.querySelector('[data-action=edit]').addEventListener('click', openSelectedEditor);
+    contextMenu.querySelector('[data-action=copy]').addEventListener('click', () => {
+        global.DrawingClipboard?.copySelection?.();
+        contextMenu.style.display = 'none';
+    });
+    contextMenu.querySelector('[data-action=paste]').addEventListener('click', () => {
+        global.DrawingClipboard?.pasteSelection?.();
+        contextMenu.style.display = 'none';
+    });
+    contextMenu.querySelector('[data-action=delete]').addEventListener('click', () => {
+        const target = deleteTarget;
+        deleteTarget = null;
+        contextMenu.style.display = 'none';
+        layerSubmenu.style.display = 'none';
+        if (target && global.DrawingClipboard?.deleteObject(target)) {
+            selectedGroup = null;
+            selectedEntities = [];
+            updateSelectionBoxes();
+        }
+    });
     contextMenu.querySelector('[data-action=group]').addEventListener('click', () => createGroup());
     contextMenu.querySelector('[data-action=ungroup]').addEventListener('click', () => ungroup());
     editorPanel.querySelector('[data-editor-close]').addEventListener('click', closeMilitaryEditor);
@@ -497,25 +583,41 @@
         finishSelection(event.position);
     }, Cesium.ScreenSpaceEventType.LEFT_UP);
     handler.setInputAction(event => {
-        if (!selectedEntities.length) {
-            const picked = viewer.scene.pick(event.position)?.id;
-            const candidate = picked?._drawingOwner || picked?._lineOwner || picked;
-            const root = candidate?.customData?.groupEntity || candidate;
-            if (root?.customData?.drawingType || isMilitaryEntity(root)) {
-                viewer.selectedEntity = root;
-                selectedGroup = root.customData?.isDrawingGroup || root.customData?.isMilitaryGroup ? root : null;
-                selectedEntities = selectedGroup ? (selectedGroup.customData?.groupMembers || []).slice() : [root];
-            }
+        global.DrawingClipboard?.setPastePositionFromScreen?.(event.position);
+        const picked = viewer.scene.pick(event.position)?.id;
+        let candidate = picked?._drawingOwner || picked?._lineOwner || picked;
+        // Tactical areas are rendered as child entities; edit their owning symbol.
+        if (candidate?.parent?.customData?.multipointTacticalGraphic) candidate = candidate.parent;
+        const owner = candidate && viewer.entities.values.find(entity =>
+            !entity.customData?.isDrawingGroup && !entity.customData?.isMilitaryGroup &&
+            Array.isArray(entity.customData?.subEntities) && entity.customData.subEntities.includes(candidate));
+        if (owner) candidate = owner;
+        const root = candidate?.customData?.groupEntity || candidate;
+        deleteTarget = candidate && (candidate.customData?.drawingType || isMilitaryEntity(candidate)) && !candidate.customData?.isDrawingGroup && !candidate.customData?.isMilitaryGroup ? candidate : null;
+        if (root?.customData?.drawingType || isMilitaryEntity(root)) {
+            viewer.selectedEntity = root;
+            selectedGroup = root.customData?.isDrawingGroup || root.customData?.isMilitaryGroup ? root : null;
+            selectedEntities = selectedGroup ? (selectedGroup.customData?.groupMembers || []).slice() : [root];
+        } else if (global.DrawingClipboard?.hasCopy?.()) {
+            viewer.selectedEntity = undefined;
+            selectedGroup = null;
+            selectedEntities = [];
         }
-        if (!selectedEntities.length) return;
+        if (!selectedEntities.length && !global.DrawingClipboard?.hasCopy?.()) return;
         const hasGrouped = selectedEntities.some(entity => entity.customData?.groupId || entity.customData?.isDrawingGroup || entity.customData?.isMilitaryGroup);
         const groupButton = contextMenu.querySelector('[data-action=group]');
         const ungroupButton = contextMenu.querySelector('[data-action=ungroup]');
         const editButton = contextMenu.querySelector('[data-action=edit]');
-        editButton.disabled = !editableMilitaryEntity();
+        const copyButton = contextMenu.querySelector('[data-action=copy]');
+        const pasteButton = contextMenu.querySelector('[data-action=paste]');
+        const deleteButton = contextMenu.querySelector('[data-action=delete]');
+        deleteButton.disabled = !deleteTarget || !global.DrawingClipboard?.deleteObject;
+        editButton.disabled = !editableMilitaryEntity() && !editableOpacityEntity();
+        copyButton.disabled = !selectedEntities.length;
+        pasteButton.disabled = !global.DrawingClipboard?.hasCopy?.();
         groupButton.disabled = selectedEntities.filter(entity => !entity.customData?.groupId && !entity.customData?.isDrawingGroup && !entity.customData?.isMilitaryGroup).length < 2;
         ungroupButton.disabled = !hasGrouped;
-        [editButton, groupButton, ungroupButton].forEach(button => { button.style.opacity = button.disabled ? '.4' : '1'; });
+        [editButton, copyButton, pasteButton, deleteButton, groupButton, ungroupButton].forEach(button => { button.style.opacity = button.disabled ? '.4' : '1'; });
         contextMenu.style.left = `${event.position.x}px`;
         contextMenu.style.top = `${event.position.y}px`;
         contextMenu.style.display = 'block';
