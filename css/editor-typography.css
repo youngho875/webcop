@@ -1,0 +1,31 @@
+/* Shared typography for military symbol and geometry editors. SVG labels retain their own sizing. */
+:is(#icop-symbol-editor, #military-symbol-editor, #area-style-panel) {
+  font: 13px/1.45 sans-serif !important;
+}
+:is(#icop-symbol-editor, #military-symbol-editor, #area-style-panel) :is(input, select, textarea, button) {
+  font-family: sans-serif !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+:is(#icop-symbol-editor, #military-symbol-editor, #area-style-panel) :is(h3, [data-editor-header] strong, .asp-title) {
+  font: 700 14px/1.4 sans-serif !important;
+}
+:is(#icop-symbol-editor, #military-symbol-editor, #area-style-panel) :is(small, .asp-help, [data-editor-error]) {
+  font: 11px/1.4 sans-serif !important;
+}
+#icop-symbol-editor h3 { padding: 8px 12px !important; }
+#icop-symbol-editor form { padding: 10px 12px !important; }
+#icop-symbol-editor form > label { margin: 6px 0 !important; gap: 8px !important; }
+:is(#icop-symbol-editor, #military-symbol-editor) :is(input:not([type=checkbox]):not([type=color]), select) {
+  min-height: 28px; padding: 4px 6px !important;
+}
+:is(#icop-symbol-editor, #military-symbol-editor) button { padding: 5px 10px !important; }
+:is(#military-symbol-editor [data-editor-close], #area-style-panel .asp-close) { font-size: 18px !important; }
+
+/* Keep editing panels compact with their fields scrolling inside. */
+#icop-symbol-editor { max-height: min(65vh, 480px) !important; overflow-y: auto; }
+#icop-symbol-editor form > div:first-child { min-height: 40px !important; }
+#icop-symbol-editor form > p { margin: 5px 0 !important; }
+#icop-symbol-editor form > label { margin: 4px 0 !important; }
+#icop-symbol-editor > div:last-child { padding: 7px 12px !important; }
+#military-symbol-editor { max-height: min(65vh, 480px) !important; }
