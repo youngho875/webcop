@@ -53,11 +53,33 @@
     if(properties.validationNote){const note=document.createElement('small');note.textContent=properties.validationNote;title.append(note);}
     row.append(input);form.append(row);return input;
   }
+  function installPanelDragging(heading) {
+    let drag=null;
+    heading.style.cursor='move';heading.style.userSelect='none';
+    heading.addEventListener('pointerdown',event=>{
+      if(event.button!==0||event.target.closest('button,input,select,textarea'))return;
+      const rect=panel.getBoundingClientRect();
+      panel.style.position='fixed';panel.style.margin='0';panel.style.left=rect.left+'px';panel.style.top=rect.top+'px';panel.style.right='auto';panel.style.bottom='auto';
+      drag={pointerId:event.pointerId,dx:event.clientX-rect.left,dy:event.clientY-rect.top};
+      heading.setPointerCapture?.(event.pointerId);event.preventDefault();
+    });
+    heading.addEventListener('pointermove',event=>{
+      if(!drag||event.pointerId!==drag.pointerId)return;
+      const maxLeft=Math.max(0,window.innerWidth-panel.offsetWidth),maxTop=Math.max(0,window.innerHeight-panel.offsetHeight);
+      panel.style.left=Math.max(0,Math.min(event.clientX-drag.dx,maxLeft))+'px';
+      panel.style.top=Math.max(0,Math.min(event.clientY-drag.dy,maxTop))+'px';event.preventDefault();
+    });
+    const stop=event=>{
+      if(!drag||event.pointerId!==drag.pointerId)return;
+      if(heading.hasPointerCapture?.(event.pointerId))heading.releasePointerCapture(event.pointerId);drag=null;
+    };
+    heading.addEventListener('pointerup',stop);heading.addEventListener('pointercancel',stop);
+  }
   function ensurePanel() {
     if(panel)return;
     panel=document.createElement('dialog');panel.id='icop-symbol-editor';panel.setAttribute('aria-label','부호별 속성 편집');
     panel.style.cssText='width:470px;max-width:90vw;max-height:85vh;padding:0;border:1px solid #64748b;border-radius:10px;color:#1e293b;background:#f8fafc;box-shadow:0 12px 50px #0006;';
-    const heading=document.createElement('h3');heading.textContent='부호별 속성 편집';heading.style.cssText='position:sticky;top:0;margin:0;padding:14px;background:#334155;color:white;z-index:1;';panel.append(heading);
+    const heading=document.createElement('h3');heading.textContent='부호별 속성 편집';heading.style.cssText='position:sticky;top:0;margin:0;padding:14px;background:#334155;color:white;z-index:1;';panel.append(heading);installPanelDragging(heading);
     form=document.createElement('form');form.style.padding='14px';form.noValidate=false;
     preview=document.createElement('div');preview.style.cssText='min-height:90px;display:flex;align-items:center;justify-content:center;';
     panel.append(form);message=document.createElement('p');message.setAttribute('role','status');message.style.cssText='padding:0 14px;color:#b45309;';panel.append(message);
@@ -136,8 +158,11 @@ return svg;
       }
       if(!schema)throw new Error('이 부호에 대응하는 ICOP 편집 정의가 없습니다.');
       const id=metadata.id||node.id;const saved=entity?entity.customData?.icopEditor:readDraft(id);
-      const sidc=entity?.customData?.sidc||metadata.data||node.data||schema.code;
-      const state=buildState(schema,saved||{},sidc);state.sidc=entity ? sidc : (saved?.sidc || sidc);
+      const activeSidc=typeof metadata.activeSidc==='string' && metadata.activeSidc.length===15 ? metadata.activeSidc : null;
+      const sidc=entity?.customData?.sidc||activeSidc||metadata.data||node.data||schema.code;
+      const state=buildState(schema,saved||{},sidc);
+      // 신규 부호 편집에서는 군대부호 창에서 고른 현재 피아식별 SIDC를 최우선으로 유지한다.
+      state.sidc=entity ? sidc : (activeSidc || saved?.sidc || sidc);
       if(entity)state.name=entity.name || state.name;
       const baseOptions=entity?.customData?.symbolOptions||metadata.symbolOptions||{};
       if(!saved) {

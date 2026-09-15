@@ -21,7 +21,7 @@
 
     const contextMenu = document.createElement('div');
     contextMenu.style.cssText = 'display:none;position:absolute;z-index:1300;min-width:125px;padding:5px;border:1px solid #475569;border-radius:6px;background:#1f2937;box-shadow:0 8px 22px rgba(0,0,0,.45);';
-    contextMenu.innerHTML = '<button data-action="edit">편집</button><button data-action="copy">복사</button><button data-action="paste">붙여넣기</button><button data-action="delete">삭제</button><button data-action="group">그룹</button><button data-action="ungroup">그룹해제</button><div class="drawing-layer-position"><button data-action="layer-position">레이어 위치 ▸</button><div class="drawing-layer-submenu"><button data-action="layer-top">맨 위</button><button data-action="layer-bottom">맨 아래</button></div></div>';
+    contextMenu.innerHTML = '<button data-action="edit">편집</button><button data-action="copy">복사</button><button data-action="paste">붙여넣기</button><button data-action="delete">삭제</button><button data-action="group">그룹</button><button data-action="ungroup">그룹해제</button><button data-action="save">저장</button><div class="drawing-layer-position"><button data-action="layer-position">레이어 위치 ▸</button><div class="drawing-layer-submenu"><button data-action="layer-top">맨 위</button><button data-action="layer-bottom">맨 아래</button></div></div>';
     contextMenu.querySelectorAll('button').forEach(button => { button.style.cssText = 'display:block;width:100%;padding:7px 12px;border:0;border-radius:4px;background:transparent;color:#fff;text-align:left;cursor:pointer;'; });
     const layerPosition = contextMenu.querySelector('.drawing-layer-position');
     const layerSubmenu = contextMenu.querySelector('.drawing-layer-submenu');
@@ -213,7 +213,7 @@
         document.dispatchEvent(new CustomEvent('drawing-multi-selection-changed', { detail: { entities: selectedEntities.slice() } }));
     }
 
-    function createGroup(targetEntities = selectedEntities) {
+    function createGroup(targetEntities = selectedEntities, suppliedName = null) {
         contextMenu.style.display = 'none';
         const source = Array.isArray(targetEntities) ? targetEntities : selectedEntities;
         const first = source.find(entity => entity?.customData?.drawingType || isMilitaryEntity(entity));
@@ -224,7 +224,7 @@
             return sameKind && !entity.customData.isDrawingGroup && !entity.customData.isMilitaryGroup && !entity.customData.groupId;
         });
         if (members.length < 2) return;
-        const name = (global.prompt('그룹명을 입력하세요.', `그룹 ${++groupSequence}`) || '').trim();
+        const name = String(suppliedName ?? (global.prompt('그룹명을 입력하세요.', `그룹 ${++groupSequence}`) || '')).trim();
         if (!name) return;
         const groupId = `drawing-group-${Date.now()}`;
         const groupEntity = viewer.entities.add({ name });
@@ -285,6 +285,299 @@
         return entity._areaStyleEditor || drawingType === 'line' || entity.customData?.textDrawing
             ? entity
             : null;
+    }
+
+    function readProperty(property) {
+        return property?.getValue ? property.getValue(viewer.clock.currentTime) : property;
+    }
+
+    function cartesianToCoordinate(position) {
+        if (!Cesium.defined(position)) return null;
+        try {
+            const cartographic = Cesium.Cartographic.fromCartesian(position);
+            return {
+                longitude: Cesium.Math.toDegrees(cartographic.longitude),
+                latitude: Cesium.Math.toDegrees(cartographic.latitude),
+                height: Number(cartographic.height) || 0
+            };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function positionsToCoordinates(positions) {
+        return (readProperty(positions) || []).map(cartesianToCoordinate).filter(Boolean);
+    }
+
+    function cleanMetadata(value, seen = new WeakSet()) {
+        if (value == null || typeof value === 'string' || typeof value === 'boolean') return value;
+        if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+        if (typeof value === 'function') return undefined;
+        if (value instanceof Cesium.Cartesian3) return cartesianToCoordinate(value);
+        if (Array.isArray(value)) return value.map(item => cleanMetadata(item, seen)).filter(item => item !== undefined);
+        if (typeof value !== 'object' || seen.has(value)) return undefined;
+        if (value.id && (value.position || value.polygon || value.polyline || value.billboard || value.customData)) return undefined;
+        seen.add(value);
+        const result = {};
+        Object.entries(value).forEach(([key, item]) => {
+            if (['groupEntity', 'groupMembers', 'subEntities', 'renderedEntityIds'].includes(key)) return;
+            const cleaned = cleanMetadata(item, seen);
+            if (cleaned !== undefined) result[key] = cleaned;
+        });
+        seen.delete(value);
+        return result;
+    }
+
+    function serializeMilitaryEntity(entity) {
+        const data = entity.customData || {};
+        if (data.multipointTacticalGraphic) {
+            return {
+                kind: 'multipointTacticalGraphic',
+                name: entity.name || data.displayName || '전술도형',
+                shape: data.shape,
+                sidc: data.sidc || null,
+                symbolMetadata: cleanMetadata(data.symbolMetadata) || null,
+                icopEditor: cleanMetadata(data.icopEditor) || null,
+                modifiers: cleanMetadata(data.modifiers) || null,
+                positions: cleanMetadata(data.positions) || []
+            };
+        }
+        const coordinate = cartesianToCoordinate(readProperty(entity.position)) || { longitude: 0, latitude: 0, height: 0 };
+        return {
+            kind: 'militaryPoint',
+            name: entity.name || data.displayName || '군대부호',
+            ...coordinate,
+            sidc: data.sidc || null,
+            symbolOptions: cleanMetadata(data.symbolOptions) || {},
+            icopCode: data.icopCode || null,
+            symbolMetadata: cleanMetadata(data.symbolMetadata) || null,
+            icopEditor: cleanMetadata(data.icopEditor) || null
+        };
+    }
+
+    function serializeOpacityEntity(entity) {
+        const hierarchy = readProperty(entity.polygon?.hierarchy);
+        const rectangle = readProperty(entity.rectangle?.coordinates);
+        const geometry = {};
+        const position = cartesianToCoordinate(readProperty(entity.position));
+        if (position) geometry.position = position;
+        if (hierarchy?.positions || Array.isArray(hierarchy)) geometry.polygon = positionsToCoordinates(hierarchy.positions || hierarchy);
+        if (entity.polyline) geometry.polyline = positionsToCoordinates(entity.polyline.positions);
+        if (entity.corridor) {
+            geometry.corridor = {
+                positions: positionsToCoordinates(entity.corridor.positions),
+                width: Number(readProperty(entity.corridor.width)) || 0
+            };
+        }
+        if (entity.ellipse) {
+            geometry.ellipse = {
+                semiMajorAxis: Number(readProperty(entity.ellipse.semiMajorAxis)) || 0,
+                semiMinorAxis: Number(readProperty(entity.ellipse.semiMinorAxis)) || 0,
+                rotation: Number(readProperty(entity.ellipse.rotation)) || 0
+            };
+        }
+        if (rectangle) {
+            geometry.rectangle = {
+                west: Cesium.Math.toDegrees(rectangle.west), south: Cesium.Math.toDegrees(rectangle.south),
+                east: Cesium.Math.toDegrees(rectangle.east), north: Cesium.Math.toDegrees(rectangle.north)
+            };
+        }
+        return {
+            kind: 'opacityDrawing',
+            name: entity.name || entity.customData?.displayName || '투명도 그리기',
+            drawingType: entity.customData?.drawingType || null,
+            geometry,
+            style: cleanMetadata(entity._areaStyleEditor?.style) || null,
+            metadata: cleanMetadata(entity.customData) || {}
+        };
+    }
+
+    async function saveSelection() {
+        contextMenu.style.display = 'none';
+        layerSubmenu.style.display = 'none';
+        const targets = (selectedGroup ? selectedGroup.customData?.groupMembers : selectedEntities)?.filter(entity => viewer.entities.contains(entity)) || [];
+        if (!targets.length) return;
+        const groupName = selectedGroup?.customData?.displayName || selectedGroup?.name || null;
+        const payload = {
+            format: 'webcop-object-selection',
+            version: 1,
+            savedAt: new Date().toISOString(),
+            group: groupName ? { name: groupName, memberCount: targets.length } : null,
+            objects: targets.map(entity => isMilitaryEntity(entity) ? serializeMilitaryEntity(entity) : serializeOpacityEntity(entity))
+        };
+        const baseName = groupName || (targets.length === 1 ? (targets[0].name || targets[0].customData?.displayName) : `선택객체-${targets.length}개`) || 'webcop-객체';
+        const fileName = String(baseName).replace(/[\\/:*?"<>|]+/g, '_').trim() || 'webcop-객체';
+        const json = JSON.stringify(payload, null, 2);
+        const suggestedName = `${fileName}.json`;
+        if (typeof global.showSaveFilePicker === 'function') {
+            try {
+                const handle = await global.showSaveFilePicker({
+                    suggestedName,
+                    types: [{ description: 'WebCOP JSON 파일', accept: { 'application/json': ['.json'] } }]
+                });
+                const writable = await handle.createWritable();
+                await writable.write(json);
+                await writable.close();
+                return;
+            } catch (error) {
+                if (error?.name === 'AbortError') return;
+                console.warn('[DrawingGroupManager] 파일 저장 대화상자를 사용할 수 없어 일반 다운로드로 전환합니다.', error);
+            }
+        }
+        const enteredName = global.prompt('저장할 파일명을 입력하세요.\n저장 경로는 브라우저의 다운로드 위치 설정을 따릅니다.', suggestedName);
+        if (enteredName == null) return;
+        const fallbackName = String(enteredName).trim().replace(/[\\/:*?"<>|]+/g, '_') || suggestedName;
+        const downloadName = fallbackName.toLowerCase().endsWith('.json') ? fallbackName : `${fallbackName}.json`;
+        const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = downloadName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    function styleOrDefault(style = {}) {
+        return {
+            shapeName: style.shapeName || '불러온 도형',
+            fillType: style.fillType || 'solid', fillColor: style.fillColor || '#00bfff', fillOpacity: Number(style.fillOpacity ?? 35),
+            lineType: style.lineType || 'solid', lineColor: style.lineColor || '#ffffff', lineOpacity: Number(style.lineOpacity ?? 100),
+            lineWidth: Number(style.lineWidth) || 3, dashType: style.dashType || 'solid', ...style
+        };
+    }
+
+    function coordinateToCartesian(coordinate) {
+        const longitude = Number(coordinate?.longitude ?? coordinate?.lon);
+        const latitude = Number(coordinate?.latitude ?? coordinate?.lat);
+        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
+        return Cesium.Cartesian3.fromDegrees(longitude, latitude, Number(coordinate?.height) || 0);
+    }
+
+    function restoreOpacityEntity(record) {
+        const geometry = record.geometry || {};
+        const style = styleOrDefault(record.style || {});
+        const name = record.name || record.metadata?.displayName || '불러온 투명도 도형';
+        let entity;
+        let outlineEntity = null;
+        const polygonPositions = (geometry.polygon || []).map(coordinateToCartesian).filter(Boolean);
+        const polylinePositions = (geometry.polyline || []).map(coordinateToCartesian).filter(Boolean);
+        const position = coordinateToCartesian(geometry.position);
+        const textSettings = record.metadata?.textSettings;
+        if (position && record.metadata?.textDrawing) {
+            const fontSize = Math.max(8, Number(textSettings?.fontSize) || 18);
+            entity = viewer.entities.add({ name, position, label: {
+                text: String(textSettings?.content || textSettings?.text || name),
+                font: `${textSettings?.fontWeight || 'normal'} ${fontSize}px ${textSettings?.fontFamily || 'sans-serif'}`,
+                fillColor: Cesium.Color.fromCssColorString(textSettings?.textColor || '#ffffff'),
+                showBackground: true,
+                backgroundColor: Cesium.Color.fromCssColorString(textSettings?.backgroundColor || '#1f2937').withAlpha(Number(textSettings?.backgroundOpacity ?? 80) / 100),
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY
+            } });
+        } else if (polygonPositions.length >= 3) {
+            entity = viewer.entities.add({ name, polygon: {
+                hierarchy: polygonPositions, material: global.ShapeDrawingCore?.fillMaterial?.(style) || Cesium.Color.CYAN.withAlpha(.35),
+                outline: false, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, classificationType: Cesium.ClassificationType.BOTH
+            } });
+            outlineEntity = viewer.entities.add({ show: style.lineType !== 'none', polyline: {
+                positions: [...polygonPositions, polygonPositions[0]], width: style.lineWidth,
+                material: global.ShapeDrawingCore?.lineMaterial?.(style) || Cesium.Color.WHITE, clampToGround: true
+            } });
+            outlineEntity._drawingOwner = entity;
+        } else if (polylinePositions.length >= 2) {
+            entity = viewer.entities.add({ name, polyline: {
+                positions: polylinePositions, width: style.lineWidth,
+                material: global.ShapeDrawingCore?.lineMaterial?.(style) || Cesium.Color.WHITE, clampToGround: true
+            } });
+        } else if (position && geometry.ellipse) {
+            entity = viewer.entities.add({ name, position, ellipse: {
+                semiMajorAxis: Number(geometry.ellipse.semiMajorAxis) || 1,
+                semiMinorAxis: Number(geometry.ellipse.semiMinorAxis) || 1,
+                rotation: Number(geometry.ellipse.rotation) || 0,
+                material: global.ShapeDrawingCore?.fillMaterial?.(style) || Cesium.Color.CYAN.withAlpha(.35),
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+            } });
+        } else if (geometry.rectangle) {
+            const rectangle = geometry.rectangle;
+            entity = viewer.entities.add({ name, rectangle: {
+                coordinates: Cesium.Rectangle.fromDegrees(Number(rectangle.west), Number(rectangle.south), Number(rectangle.east), Number(rectangle.north)),
+                material: global.ShapeDrawingCore?.fillMaterial?.(style) || Cesium.Color.CYAN.withAlpha(.35),
+                outline: true,
+                outlineColor: Cesium.Color.fromCssColorString(style.lineColor || '#ffffff'),
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+            } });
+        } else if (position) {
+            entity = viewer.entities.add({ name, position, point: {
+                pixelSize: Number(style.pointSize) || 12,
+                color: Cesium.Color.fromCssColorString(style.fillColor || '#00bfff').withAlpha((Number(style.fillOpacity) || 100) / 100),
+                outlineColor: Cesium.Color.fromCssColorString(style.lineColor || '#ffffff'), outlineWidth: Number(style.lineWidth) || 2,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY
+            } });
+        }
+        if (!entity) return null;
+        entity.customData = {
+            ...(record.metadata || {}), drawingType: record.drawingType || record.metadata?.drawingType || 'loaded-drawing',
+            displayName: name, subEntities: outlineEntity ? [outlineEntity] : []
+        };
+        if (global.ShapeDrawingCore?.attachEditor) {
+            global.ShapeDrawingCore.attachEditor(viewer, entity, `${name} 설정/편집`, style, nextStyle => {
+                entity.name = String(nextStyle.shapeName || entity.name).trim();
+                entity.customData.displayName = entity.name;
+                if (entity.polygon) entity.polygon.material = global.ShapeDrawingCore.fillMaterial(nextStyle);
+                if (entity.rectangle) entity.rectangle.material = global.ShapeDrawingCore.fillMaterial(nextStyle);
+                if (entity.polyline) {
+                    entity.show = nextStyle.lineType !== 'none';
+                    entity.polyline.width = nextStyle.lineWidth;
+                    entity.polyline.material = global.ShapeDrawingCore.lineMaterial(nextStyle);
+                }
+                if (outlineEntity) {
+                    outlineEntity.show = nextStyle.lineType !== 'none';
+                    outlineEntity.polyline.width = nextStyle.lineWidth;
+                    outlineEntity.polyline.material = global.ShapeDrawingCore.lineMaterial(nextStyle);
+                }
+                document.dispatchEvent(new CustomEvent('drawing-entity-updated', { detail: { entity } }));
+            });
+        }
+        document.dispatchEvent(new CustomEvent('drawing-entity-added', { detail: { entity } }));
+        return entity;
+    }
+
+    function chooseAndLoad(kind) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,application/json';
+        input.addEventListener('change', async () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            try {
+                const parsed = JSON.parse(await file.text());
+                const records = Array.isArray(parsed) ? parsed : parsed?.objects;
+                if (!Array.isArray(records)) throw new Error('WebCOP 저장 파일 형식이 아닙니다.');
+                let created = [];
+                if (kind === 'military') {
+                    const militaryRecords = records.filter(item => item?.kind === 'militaryPoint' || item?.kind === 'multipointTacticalGraphic');
+                    if (!militaryRecords.length) throw new Error('파일에 저장된 군대부호가 없습니다.');
+                    created = global.unifiedControlPanel?.importSerializedEntities?.(militaryRecords) || [];
+                } else {
+                    const drawingRecords = records.filter(item => item?.kind === 'opacityDrawing');
+                    if (!drawingRecords.length) throw new Error('파일에 저장된 투명도 그리기 객체가 없습니다.');
+                    created = drawingRecords.map(restoreOpacityEntity).filter(Boolean);
+                }
+                if (!created.length) throw new Error('화면에 복원할 수 있는 객체가 없습니다.');
+                if (parsed?.group?.name && created.length > 1) createGroup(created, parsed.group.name);
+                viewer.selectedEntity = created.length === 1 ? created[0] : selectedGroup;
+                viewer.flyTo(created).catch(() => {});
+                viewer.scene.requestRender();
+            } catch (error) {
+                console.error('[DrawingGroupManager] 파일 불러오기 실패:', error);
+                global.alert(`불러오기에 실패했습니다.\n${error.message || error}`);
+            } finally {
+                input.remove();
+            }
+        }, { once: true });
+        document.body.appendChild(input);
+        input.click();
     }
 
     function loadSymbolCatalog() {
@@ -501,6 +794,7 @@
     });
     contextMenu.querySelector('[data-action=group]').addEventListener('click', () => createGroup());
     contextMenu.querySelector('[data-action=ungroup]').addEventListener('click', () => ungroup());
+    contextMenu.querySelector('[data-action=save]').addEventListener('click', saveSelection);
     editorPanel.querySelector('[data-editor-close]').addEventListener('click', closeMilitaryEditor);
     editorPanel.querySelector('[data-editor-cancel]').addEventListener('click', closeMilitaryEditor);
     editorPanel.querySelector('[data-editor-apply]').addEventListener('click', () => {
@@ -611,13 +905,15 @@
         const copyButton = contextMenu.querySelector('[data-action=copy]');
         const pasteButton = contextMenu.querySelector('[data-action=paste]');
         const deleteButton = contextMenu.querySelector('[data-action=delete]');
+        const saveButton = contextMenu.querySelector('[data-action=save]');
         deleteButton.disabled = !deleteTarget || !global.DrawingClipboard?.deleteObject;
         editButton.disabled = !editableMilitaryEntity() && !editableOpacityEntity();
         copyButton.disabled = !selectedEntities.length;
         pasteButton.disabled = !global.DrawingClipboard?.hasCopy?.();
         groupButton.disabled = selectedEntities.filter(entity => !entity.customData?.groupId && !entity.customData?.isDrawingGroup && !entity.customData?.isMilitaryGroup).length < 2;
         ungroupButton.disabled = !hasGrouped;
-        [editButton, copyButton, pasteButton, deleteButton, groupButton, ungroupButton].forEach(button => { button.style.opacity = button.disabled ? '.4' : '1'; });
+        saveButton.disabled = !selectedEntities.length;
+        [editButton, copyButton, pasteButton, deleteButton, groupButton, ungroupButton, saveButton].forEach(button => { button.style.opacity = button.disabled ? '.4' : '1'; });
         contextMenu.style.left = `${event.position.x}px`;
         contextMenu.style.top = `${event.position.y}px`;
         contextMenu.style.display = 'block';
@@ -643,7 +939,9 @@
         getSelection: () => selectedEntities.slice(),
         createGroup,
         ungroup,
-        groupEntities: entities => createGroup(entities),
-        ungroupEntities: entities => ungroup(entities)
+        groupEntities: (entities, name) => createGroup(entities, name),
+        ungroupEntities: entities => ungroup(entities),
+        loadMilitaryFile: () => chooseAndLoad('military'),
+        loadOpacityDrawingFile: () => chooseAndLoad('opacity')
     };
 })(window);

@@ -15,14 +15,18 @@ window.airspace = (function () {
     return {};
   }
 
-  const VERSION = 1;
+  const VERSION = 2;
   const shapes = new Map();
   const entities = [];
   let selectedId = null;
+  const selectedIds = new Set();
   let drawing = null;
   let previewEntity = null;
   let editHandles = [];
   let draggedHandle = null;
+  let selectionDrag = null;
+  let selectionBox = null;
+  let contextMenu = null;
   let idSequence = 0;
 
   const drawHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
@@ -112,6 +116,8 @@ window.airspace = (function () {
     if (s.topHeight < s.baseHeight) [s.baseHeight, s.topHeight] = [s.topHeight, s.baseHeight];
     s.opacity = Math.min(1, Math.max(0.05, Number(s.opacity) || defaults.opacity));
     s.color = String(s.color || defaults.color);
+    s.groupId = s.groupId ? String(s.groupId) : null;
+    s.groupName = s.groupName ? String(s.groupName) : null;
     return s;
   }
 
@@ -120,7 +126,7 @@ window.airspace = (function () {
       id: shape.id,
       name: shape.name,
       description: shape.type + " / " + shape.baseHeight + "m ~ " + shape.topHeight + "m",
-      properties: { airspaceId: shape.id, airspaceType: shape.type }
+      properties: { airspaceId: shape.id, airspaceType: shape.type, airspaceGroupId: shape.groupId || "" }
     };
   }
 
@@ -219,12 +225,24 @@ window.airspace = (function () {
     if (!target) return;
     removeEntityOnly(target);
     shapes.delete(target);
+    selectedIds.delete(target);
     if (selectedId === target) selectShape(null);
+  }
+
+  function deleteSelected() {
+    const ids = Array.from(selectedIds);
+    ids.forEach(function (id) {
+      removeEntityOnly(id);
+      shapes.delete(id);
+    });
+    selectShape(null);
+    setStatus(ids.length + "개 공역을 삭제했습니다.");
   }
 
   function clearAll() {
     Array.from(shapes.keys()).forEach(removeEntityOnly);
     shapes.clear();
+    selectedIds.clear();
     selectShape(null);
   }
 
@@ -259,18 +277,146 @@ window.airspace = (function () {
     });
   }
 
-  function selectShape(id) {
-    selectedId = id && shapes.has(id) ? id : null;
+  function selectShapes(ids, primaryId) {
+    selectedIds.clear();
+    (ids || []).forEach(function (id) { if (shapes.has(id)) selectedIds.add(id); });
+    selectedId = primaryId && selectedIds.has(primaryId) ? primaryId : (selectedIds.values().next().value || null);
     if (selectedId) showEditHandles(shapes.get(selectedId));
     else clearEditHandles();
     syncPanel();
+  }
+
+  function selectShape(id) {
+    selectShapes(id ? [id] : [], id);
   }
 
   function pickedProperty(entity, name) {
     return entity && entity.properties ? valueOf(entity.properties[name]) : undefined;
   }
 
+  function shapeScreenPoints(shape) {
+    const points = shape.type === "circle" ? [shape.center] : shape.points;
+    return (points || []).map(function (point) {
+      const world = cartesian(point, shape.topHeight);
+      return Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, world);
+    }).filter(Boolean);
+  }
+
+  function finishBoxSelection() {
+    if (!selectionDrag) return;
+    const left = Math.min(selectionDrag.start.x, selectionDrag.end.x);
+    const right = Math.max(selectionDrag.start.x, selectionDrag.end.x);
+    const top = Math.min(selectionDrag.start.y, selectionDrag.end.y);
+    const bottom = Math.max(selectionDrag.start.y, selectionDrag.end.y);
+    const ids = [];
+    shapes.forEach(function (shape, id) {
+      if (shapeScreenPoints(shape).some(function (p) {
+        return p.x >= left && p.x <= right && p.y >= top && p.y <= bottom;
+      })) ids.push(id);
+    });
+    selectionDrag = null;
+    if (selectionBox) selectionBox.style.display = "none";
+    viewer.scene.screenSpaceCameraController.enableInputs = true;
+    selectShapes(ids, ids[0]);
+    setStatus(ids.length ? ids.length + "개 공역을 선택했습니다." : "선택된 공역이 없습니다.");
+  }
+
+  function updateSelectionBox(position) {
+    if (!selectionDrag || !selectionBox) return;
+    selectionDrag.end = { x: position.x, y: position.y };
+    const left = Math.min(selectionDrag.start.x, position.x);
+    const top = Math.min(selectionDrag.start.y, position.y);
+    selectionBox.style.left = left + "px";
+    selectionBox.style.top = top + "px";
+    selectionBox.style.width = Math.abs(position.x - selectionDrag.start.x) + "px";
+    selectionBox.style.height = Math.abs(position.y - selectionDrag.start.y) + "px";
+  }
+
+  function hideContextMenu() {
+    if (contextMenu) contextMenu.style.display = "none";
+  }
+
+  function groupSelected() {
+    if (selectedIds.size < 2) {
+      setStatus("그룹으로 묶을 공역을 2개 이상 선택하세요.");
+      return;
+    }
+    const suggested = "공역 그룹 " + new Date().toLocaleTimeString();
+    const name = window.prompt("그룹 이름을 입력하세요.", suggested);
+    if (name === null) return;
+    const groupId = "airspace-group-" + Date.now().toString(36);
+    selectedIds.forEach(function (id) {
+      const shape = shapes.get(id);
+      shape.groupId = groupId;
+      shape.groupName = name.trim() || suggested;
+      renderShape(shape);
+    });
+    setStatus(selectedIds.size + "개 공역을 '" + (name.trim() || suggested) + "' 그룹으로 묶었습니다.");
+  }
+
+  function ungroupSelected() {
+    const groupIds = new Set(Array.from(selectedIds).map(function (id) { return shapes.get(id)?.groupId; }).filter(Boolean));
+    if (!groupIds.size) {
+      setStatus("선택한 공역에 그룹 정보가 없습니다.");
+      return;
+    }
+    shapes.forEach(function (shape) {
+      if (groupIds.has(shape.groupId)) {
+        shape.groupId = null;
+        shape.groupName = null;
+        renderShape(shape);
+      }
+    });
+    setStatus("선택한 공역의 그룹을 해제했습니다.");
+  }
+
+  function contextSave() {
+    const selected = Array.from(selectedIds).map(function (id) { return shapes.get(id); }).filter(Boolean);
+    if (!selected.length) return;
+    const groupIds = new Set(selected.map(function (shape) { return shape.groupId; }).filter(Boolean));
+    let list = selected;
+    let filename = "airspace-selection.json";
+    if (groupIds.size === 1) {
+      const groupId = groupIds.values().next().value;
+      list = Array.from(shapes.values()).filter(function (shape) { return shape.groupId === groupId; });
+      filename = (list[0]?.groupName || "airspace-group").replace(/[\\/:*?\"<>|]/g, "_") + ".json";
+    }
+    downloadJson(filename, list);
+    setStatus(list.length + "개 공역을 저장했습니다.");
+  }
+
+  function showContextMenu(position) {
+    if (!contextMenu || !selectedIds.size) return;
+    contextMenu.style.display = "block";
+    const rect = viewer.container.getBoundingClientRect();
+    const maxLeft = window.innerWidth - contextMenu.offsetWidth - 4;
+    const maxTop = window.innerHeight - contextMenu.offsetHeight - 4;
+    contextMenu.style.left = Math.max(4, Math.min(rect.left + position.x, maxLeft)) + "px";
+    contextMenu.style.top = Math.max(4, Math.min(rect.top + position.y, maxTop)) + "px";
+  }
+
   function installEditing() {
+    editHandler.setInputAction(function (movement) {
+      if (drawing) return;
+      hideContextMenu();
+      selectionDrag = {
+        start: { x: movement.position.x, y: movement.position.y },
+        end: { x: movement.position.x, y: movement.position.y }
+      };
+      viewer.scene.screenSpaceCameraController.enableInputs = false;
+      if (selectionBox) {
+        selectionBox.style.display = "block";
+        updateSelectionBox(movement.position);
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_DOWN, Cesium.KeyboardEventModifier.SHIFT);
+
+    editHandler.setInputAction(function (movement) {
+      updateSelectionBox(movement.endPosition);
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE, Cesium.KeyboardEventModifier.SHIFT);
+
+    editHandler.setInputAction(finishBoxSelection,
+      Cesium.ScreenSpaceEventType.LEFT_UP, Cesium.KeyboardEventModifier.SHIFT);
+
     editHandler.setInputAction(function (movement) {
       if (drawing) return;
       const picked = viewer.scene.pick(movement.position);
@@ -306,11 +452,28 @@ window.airspace = (function () {
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
     editHandler.setInputAction(function () {
+      if (selectionDrag) {
+        finishBoxSelection();
+        return;
+      }
       if (!draggedHandle) return;
       draggedHandle = null;
       viewer.scene.screenSpaceCameraController.enableRotate = true;
       if (selectedId) showEditHandles(shapes.get(selectedId));
     }, Cesium.ScreenSpaceEventType.LEFT_UP);
+
+    editHandler.setInputAction(function (movement) {
+      if (drawing) return;
+      const picked = viewer.scene.pick(movement.position);
+      const id = Cesium.defined(picked) && picked.id
+        ? (pickedProperty(picked.id, "airspaceId") || picked.id.id) : null;
+      if (!id || !shapes.has(id)) {
+        hideContextMenu();
+        return;
+      }
+      if (!selectedIds.has(id)) selectShape(id);
+      showContextMenu(movement.position);
+    }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
   }
 
   function preview(points, cursor) {
@@ -434,15 +597,23 @@ window.airspace = (function () {
     set("as-color", shape.color);
     set("as-opacity", shape.opacity);
     const label = document.getElementById("as-selected");
-    if (label) label.textContent = selectedId ? "선택: " + shape.name + " (핸들 드래그로 편집)" : "선택된 도형 없음";
+    if (label) {
+      const groupText = shape.groupName ? " · 그룹: " + shape.groupName : "";
+      label.textContent = selectedId
+        ? "선택: " + shape.name + (selectedIds.size > 1 ? " 외 " + (selectedIds.size - 1) + "개" : "") + groupText + " (핸들 드래그로 편집)"
+        : "선택된 도형 없음";
+    }
   }
 
   function exportJson() {
     return { format: "cesium-airspace", version: VERSION, shapes: Array.from(shapes.values()).map(clone) };
   }
 
-  function downloadJson(filename) {
-    const blob = new Blob([JSON.stringify(exportJson(), null, 2)], { type: "application/json;charset=utf-8" });
+  function downloadJson(filename, selectedShapes) {
+    const data = selectedShapes
+      ? { format: "cesium-airspace", version: VERSION, shapes: selectedShapes.map(clone) }
+      : exportJson();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -458,11 +629,27 @@ window.airspace = (function () {
     const list = Array.isArray(parsed) ? parsed : parsed && parsed.shapes;
     if (!Array.isArray(list)) throw new Error("JSON에 shapes 배열이 없습니다.");
     if (!options || options.replace !== false) clearAll();
+    const loadedEntities = [];
     list.forEach(function (item) {
-      try { renderShape(item); } catch (error) { console.warn("도형을 불러오지 못했습니다.", item, error); }
+      try {
+        const entity = renderShape(item);
+        if (entity) loadedEntities.push(entity);
+      } catch (error) { console.warn("도형을 불러오지 못했습니다.", item, error); }
     });
-    setStatus(list.length + "개 도형을 불러왔습니다.");
-    return list.length;
+    if (loadedEntities.length) viewer.flyTo(loadedEntities).catch(function () {});
+    viewer.scene.requestRender();
+    setStatus(loadedEntities.length + "개 도형을 불러왔습니다.");
+    return loadedEntities.length;
+  }
+
+  function openImportDialog() {
+    const input = document.getElementById("as-file");
+    if (!input) {
+      window.alert("공역 파일 선택기를 만들지 못했습니다.");
+      return;
+    }
+    input.value = "";
+    input.click();
   }
 
   function loadJson(url, options) {
@@ -480,7 +667,7 @@ window.airspace = (function () {
   function createToolbar() {
     if (document.getElementById("airspace-editor")) return;
     const style = document.createElement("style");
-    style.textContent = "#airspace-editor{position:absolute;z-index:1000;top:12px;left:12px;width:470px;max-width:calc(100vw - 24px);box-sizing:border-box;background:rgba(25,29,34,.94);color:#fff;padding:12px;border-radius:8px;font:13px/1.35 Arial,sans-serif;box-shadow:0 2px 14px #0008}#airspace-editor .as-header{display:flex;align-items:center;justify-content:space-between;margin:-12px -12px 8px;padding:9px 10px 8px 12px;border-bottom:1px solid #ffffff2b;cursor:move;user-select:none}#airspace-editor .as-close{font-size:18px;line-height:20px;width:28px;height:26px;padding:0;background:#552f35;border-color:#8d5961;cursor:pointer}#airspace-editor .as-row{display:flex;gap:6px;margin:6px 0;flex-wrap:wrap}#airspace-editor .as-button-row{flex-wrap:nowrap}#airspace-editor button{background:#394651;color:#fff;border:1px solid #697985;border-radius:4px;padding:5px 8px;cursor:pointer;white-space:nowrap}#airspace-editor button:hover{background:#247ba0}#airspace-editor label{display:flex;align-items:center;gap:5px;flex:1;min-width:140px}#airspace-editor input{width:82px;background:#15191d;color:#fff;border:1px solid #65717b;border-radius:3px;padding:4px}#airspace-editor input[type=text]{width:360px}#airspace-editor input[type=color]{width:38px;padding:1px}#as-status{color:#ffd166;min-height:18px}#as-selected{color:#8ee3ef}";
+    style.textContent = "#airspace-editor{position:absolute;z-index:1000;top:12px;left:12px;width:470px;max-width:calc(100vw - 24px);box-sizing:border-box;background:rgba(25,29,34,.94);color:#fff;padding:12px;border-radius:8px;font:13px/1.35 Arial,sans-serif;box-shadow:0 2px 14px #0008}#airspace-editor .as-header{display:flex;align-items:center;justify-content:space-between;margin:-12px -12px 8px;padding:9px 10px 8px 12px;border-bottom:1px solid #ffffff2b;cursor:move;user-select:none}#airspace-editor .as-close{font-size:18px;line-height:20px;width:28px;height:26px;padding:0;background:#552f35;border-color:#8d5961;cursor:pointer}#airspace-editor .as-row{display:flex;gap:6px;margin:6px 0;flex-wrap:wrap}#airspace-editor .as-button-row{flex-wrap:nowrap}#airspace-editor button{background:#394651;color:#fff;border:1px solid #697985;border-radius:4px;padding:5px 8px;cursor:pointer;white-space:nowrap}#airspace-editor button:hover{background:#247ba0}#airspace-editor label{display:flex;align-items:center;gap:5px;flex:1;min-width:140px}#airspace-editor input{width:82px;background:#15191d;color:#fff;border:1px solid #65717b;border-radius:3px;padding:4px}#airspace-editor input[type=text]{width:360px}#airspace-editor input[type=color]{width:38px;padding:1px}#as-status{color:#ffd166;min-height:18px}#as-selected{color:#8ee3ef}#airspace-selection-box{position:fixed;z-index:19970;display:none;border:1px solid #38bdf8;background:rgba(56,189,248,.18);pointer-events:none}#airspace-context-menu{position:fixed;z-index:19980;display:none;min-width:130px;padding:5px;background:rgba(25,29,34,.98);border:1px solid #64748b;border-radius:6px;box-shadow:0 8px 24px #0009}#airspace-context-menu button{display:block;width:100%;padding:7px 12px;text-align:left;color:#fff;background:transparent;border:0;border-radius:3px;cursor:pointer}#airspace-context-menu button:hover{background:#247ba0}";
     document.head.appendChild(style);
     const box = document.createElement("div");
     box.id = "airspace-editor";
@@ -495,13 +682,36 @@ window.airspace = (function () {
       '<div class="as-row as-button-row"><button id="as-apply">속성 변경</button><button id="as-delete">선택 삭제</button><button id="as-save">JSON 저장</button><button id="as-load">JSON 불러오기</button><button id="as-clear">전체 삭제</button><input id="as-file" type="file" accept="application/json,.json" hidden></div>';
     const container = viewer.container || document.body;
     container.appendChild(box);
+    selectionBox = document.createElement("div");
+    selectionBox.id = "airspace-selection-box";
+    document.body.appendChild(selectionBox);
+    contextMenu = document.createElement("div");
+    contextMenu.id = "airspace-context-menu";
+    contextMenu.innerHTML = '<button data-action="edit">편집</button><button data-action="delete">삭제</button><button data-action="group">그룹</button><button data-action="ungroup">그룹 해제</button><button data-action="save">저장</button>';
+    document.body.appendChild(contextMenu);
+    contextMenu.addEventListener("click", function (event) {
+      const action = event.target.closest("button")?.dataset.action;
+      hideContextMenu();
+      if (action === "edit") { showPanel(); syncPanel(); }
+      else if (action === "delete") {
+        if (window.confirm(selectedIds.size + "개 공역을 삭제할까요?")) deleteSelected();
+      } else if (action === "group") groupSelected();
+      else if (action === "ungroup") ungroupSelected();
+      else if (action === "save") contextSave();
+    });
+    viewer.canvas.addEventListener("contextmenu", function (event) { event.preventDefault(); });
+    document.addEventListener("pointerdown", function (event) {
+      if (contextMenu && !contextMenu.contains(event.target)) hideContextMenu();
+    });
     box.querySelectorAll("[data-draw]").forEach(function (button) {
       button.addEventListener("click", function () { startDrawing(button.dataset.draw); });
     });
     document.getElementById("as-apply").addEventListener("click", applyPanel);
-    document.getElementById("as-delete").addEventListener("click", function () { deleteShape(); });
+    document.getElementById("as-delete").addEventListener("click", function () {
+      if (selectedIds.size > 1) deleteSelected(); else deleteShape();
+    });
     document.getElementById("as-save").addEventListener("click", function () { downloadJson(); });
-    document.getElementById("as-load").addEventListener("click", function () { document.getElementById("as-file").click(); });
+    document.getElementById("as-load").addEventListener("click", openImportDialog);
     document.getElementById("as-clear").addEventListener("click", function () { if (window.confirm("모든 공역 도형을 삭제할까요?")) clearAll(); });
     box.querySelector(".as-close").addEventListener("click", hidePanel);
     document.getElementById("as-file").addEventListener("change", function (event) {
@@ -512,7 +722,9 @@ window.airspace = (function () {
     });
     window.addEventListener("keydown", function (event) {
       if (event.key === "Escape") stopDrawing();
-      if ((event.key === "Delete" || event.key === "Backspace") && selectedId && !/INPUT|TEXTAREA/.test(event.target.tagName)) deleteShape();
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedId && !/INPUT|TEXTAREA/.test(event.target.tagName)) {
+        if (selectedIds.size > 1) deleteSelected(); else deleteShape();
+      }
     });
     installPanelDragging(box);
   }
@@ -574,6 +786,7 @@ window.airspace = (function () {
     exportJson: exportJson,
     downloadJson: downloadJson,
     importJson: importJson,
+    openImportDialog: openImportDialog,
     loadJson: loadJson,
     getShapes: function () { return Array.from(shapes.values()).map(clone); }
   };
