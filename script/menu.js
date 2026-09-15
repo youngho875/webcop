@@ -649,7 +649,7 @@
         }
     });
 
-    createIconButton('🎨 군대부호', 'military-tech', () => {
+    function openMilitaryCreationDialog() {
         if (window.militarySymbolDialog && typeof window.militarySymbolDialog.toggle === 'function') {
             window.militarySymbolDialog.toggle();
         } else if (window.unifiedControlPanel && typeof window.unifiedControlPanel.toggleMilitary === 'function') {
@@ -659,7 +659,26 @@
         } else {
             console.warn("군대부호 다이얼로그 스크립트가 로드되지 않았습니다.");
         }
+    }
+
+    const militaryDropContent = createDropdownIconButton('🎨 군대부호', 'military-tech');
+    const militaryNewLink = document.createElement('a');
+    militaryNewLink.href = '#';
+    militaryNewLink.textContent = '신규생성';
+    militaryNewLink.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        openMilitaryCreationDialog();
     });
+    const militaryLoadLink = document.createElement('a');
+    militaryLoadLink.href = '#';
+    militaryLoadLink.textContent = '불러오기';
+    militaryLoadLink.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.DrawingGroupManager?.loadMilitaryFile?.();
+    });
+    militaryDropContent.append(militaryNewLink, militaryLoadLink);
     
     // 단독 실행형 아이콘 버튼 생성 함수
     function createIconButton(tooltipText, iconName, clickCallback, customClass = '') {
@@ -1397,14 +1416,23 @@
     // 5. 🚀 대탄도탄 작전 (드롭다운 아이콘)
     const opDropContent = createDropdownIconButton('🚀 대탄도탄 작전 모음', 'rocket-launch');
     const opActions = [
-        { name: '🗺️ 공역생성', action: () => {
-            if (window.airspace && typeof window.airspace.togglePanel === 'function') {
-                window.airspace.togglePanel();
-            } else {
-                console.error('airspace.js가 로드되지 않았습니다.');
-                alert('공역생성 모듈을 불러오지 못했습니다.');
-            }
-        }},
+        { name: '🗺️ 공역생성', children: [
+            { name: '신규생성', action: () => {
+                if (window.airspace && typeof window.airspace.togglePanel === 'function') {
+                    window.airspace.togglePanel();
+                } else {
+                    console.error('airspace.js가 로드되지 않았습니다.');
+                    alert('공역생성 모듈을 불러오지 못했습니다.');
+                }
+            }},
+            { name: '불러오기', action: () => {
+                if (window.airspace && typeof window.airspace.openImportDialog === 'function') {
+                    window.airspace.openImportDialog();
+                } else {
+                    alert('공역 불러오기 기능을 사용할 수 없습니다.');
+                }
+            }}
+        ]},
         { name: '🌐 Dome 그리기', action: () => {
             if (window.domeDrawing && typeof window.domeDrawing.createControlPanel === 'function') {
                 const existBox = document.getElementById('controlPanel');
@@ -1443,6 +1471,28 @@
         }}
     ];
     opActions.forEach(item => {
+        if (item.children) {
+            const group = document.createElement('details');
+            group.className = 'draw-menu-group';
+            const summary = document.createElement('summary');
+            summary.textContent = item.name;
+            const submenu = document.createElement('div');
+            submenu.className = 'draw-submenu';
+            item.children.forEach(child => {
+                const link = document.createElement('a');
+                link.textContent = child.name;
+                link.href = '#';
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    child.action();
+                });
+                submenu.appendChild(link);
+            });
+            group.append(summary, submenu);
+            opDropContent.appendChild(group);
+            return;
+        }
         const link = document.createElement('a');
         link.textContent = item.name;
         link.href = '#';
@@ -1950,7 +2000,7 @@
         return link;
     }
 
-    function createDrawGroup(title, actions) {
+    function createDrawGroup(title, actions, parent = drawNewSubmenu) {
         const group = document.createElement('details');
         group.className = 'draw-menu-group';
         const summary = document.createElement('summary');
@@ -1959,17 +2009,37 @@
         submenu.className = 'draw-submenu';
         actions.forEach(action => submenu.appendChild(createDrawLink(action)));
         group.append(summary, submenu);
-        drawDropContent.appendChild(group);
+        parent.appendChild(group);
     }
 
-    drawDropContent.appendChild(createDrawLink(drawActions.point));
-    drawDropContent.appendChild(createDrawLink(drawActions.line));
+    const drawNewGroup = document.createElement('details');
+    drawNewGroup.className = 'draw-menu-group';
+    const drawNewSummary = document.createElement('summary');
+    drawNewSummary.textContent = '신규생성';
+    const drawNewSubmenu = document.createElement('div');
+    drawNewSubmenu.className = 'draw-submenu';
+    drawNewGroup.append(drawNewSummary, drawNewSubmenu);
+    drawDropContent.appendChild(drawNewGroup);
+
+    drawNewSubmenu.appendChild(createDrawLink(drawActions.point));
+    drawNewSubmenu.appendChild(createDrawLink(drawActions.line));
     createDrawGroup('▣ 면 그리기', [
         drawActions.polygon, drawActions.circle, drawActions.areaRectangle,
         drawActions.areaTriangle,
         drawActions.areaCone
     ]);
-    drawDropContent.appendChild(createDrawLink(drawActions.text));
+    drawNewSubmenu.appendChild(createDrawLink(drawActions.text));
+    const drawLoadLink = document.createElement('a');
+    drawLoadLink.href = '#';
+    drawLoadLink.textContent = '불러오기';
+    drawLoadLink.className = 'draw-direct-link';
+    drawLoadLink.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        deactivateAllDrawActions();
+        window.DrawingGroupManager?.loadOpacityDrawingFile?.();
+    });
+    drawDropContent.appendChild(drawLoadLink);
 
 
     // ⛰️ 지형 프로파일링: Floor.png 버튼을 누른 후 지도에서 시작점/끝점을 선택합니다.

@@ -12,6 +12,7 @@ window.mapDrawing =  (function() {
     let localShapeLoadGeneration = 0;
     let localShapeAbortController = null;
     let localShapeSceneModeListenerRegistered = false;
+    let localShapeSceneModeGeneration = 0;
     let localShapeViewportListenerRegistered = false;
     let localShapeViewportTimer = null;
     let localShapeViewportAbortController = null;
@@ -304,7 +305,37 @@ window.mapDrawing =  (function() {
     }
 
     function getLocalShapeViewBbox(expandRatio = 0) {
-        const rectangle = viewer?.camera?.computeViewRectangle(viewer.scene.globe.ellipsoid);
+        const camera = viewer?.camera;
+        const scene = viewer?.scene;
+        const ellipsoid = scene?.globe?.ellipsoid;
+        if (!camera || !scene || !ellipsoid) return null;
+
+        let rectangle = camera.computeViewRectangle(ellipsoid);
+
+        // 2D 전환 직후에는 화면 모서리가 투영 범위를 벗어나
+        // computeViewRectangle()이 null을 반환할 수 있다. 이 경우 2D 직교
+        // 카메라의 투영 좌표로 현재 화면 범위를 직접 계산한다.
+        if (!rectangle && scene.mode === Cesium.SceneMode.SCENE2D) {
+            const frustum = camera.frustum;
+            const projection = scene.mapProjection;
+            const position = camera.position;
+            if (projection && position &&
+                Number.isFinite(frustum?.left) && Number.isFinite(frustum?.right) &&
+                Number.isFinite(frustum?.bottom) && Number.isFinite(frustum?.top)) {
+                const corners = [
+                    [frustum.left, frustum.bottom],
+                    [frustum.left, frustum.top],
+                    [frustum.right, frustum.bottom],
+                    [frustum.right, frustum.top]
+                ].map(([x, y]) => projection.unproject(new Cesium.Cartesian3(
+                    position.x + x,
+                    position.y + y,
+                    0
+                ))).filter(Boolean);
+                if (corners.length) rectangle = Cesium.Rectangle.fromCartographicArray(corners);
+            }
+        }
+
         if (!rectangle) return null;
         let west = Cesium.Math.toDegrees(rectangle.west);
         let east = Cesium.Math.toDegrees(rectangle.east);
@@ -331,7 +362,12 @@ window.mapDrawing =  (function() {
     }
 
     function shouldShowLocalShapeLayer(layerInfo, visible) {
-        return Boolean(visible && isLayerInScaleRange(layerInfo, getCurrentScaleDenominator()));
+        if (!visible) return false;
+        // 2D 전환 직후 직교 카메라의 축척값이 안정화되기 전 모든 레이어가
+        // 범위 밖으로 판정되는 것을 막는다. 로컬 SHP는 이미 현재 화면 bbox로
+        // 제한해 읽으므로 사용자가 켠 레이어를 2D에서는 그대로 표시한다.
+        if (viewer?.scene?.mode === Cesium.SceneMode.SCENE2D) return true;
+        return isLayerInScaleRange(layerInfo, getCurrentScaleDenominator());
     }
 
     async function readLocalShape(layerName, signal, bbox) {
@@ -379,7 +415,9 @@ window.mapDrawing =  (function() {
                             ? { ...geoJson, features: features.slice(offset, offset + chunkSize) }
                             : features[offset];
                         const dataSource = await Cesium.GeoJsonDataSource.load(chunk, {
-                            clampToGround: true,
+                            // 2D에서는 GroundPrimitive 경로를 사용하지 않고 일반
+                            // Entity를 지도 평면(고도 0)에 직접 표시한다.
+                            clampToGround: false,
                             stroke: Cesium.Color.CYAN,
                             strokeWidth: 2,
                             fill: Cesium.Color.CYAN.withAlpha(0.24),
@@ -392,7 +430,11 @@ window.mapDrawing =  (function() {
                         await viewer.dataSources.add(dataSource);
                         record.dataSources2D.push(dataSource);
                         dataSource.entities.values.forEach(entity => {
-                            selectXmlStyles(entity, record.layerInfo).forEach(style => applyXmlStyle(entity, style));
+                            selectXmlStyles(entity, record.layerInfo).forEach(style =>
+                                applyXmlStyle(entity, style, { clampToGround: false })
+                            );
+                            if (entity.point) entity.point.heightReference = Cesium.HeightReference.NONE;
+                            if (entity.billboard) entity.billboard.heightReference = Cesium.HeightReference.NONE;
                         });
                     }
                 }
@@ -409,13 +451,18 @@ window.mapDrawing =  (function() {
     }
 
     async function syncLocalShapeSceneMode(options = {}) {
-        const is3D = viewer.scene.mode === Cesium.SceneMode.SCENE3D;
-        const is2D = viewer.scene.mode === Cesium.SceneMode.SCENE2D;
+        const generation = ++localShapeSceneModeGeneration;
+        const targetMode = viewer.scene.mode;
+        const is3D = targetMode === Cesium.SceneMode.SCENE3D;
+        const is2D = targetMode === Cesium.SceneMode.SCENE2D;
         const recordsToCreate = [];
         localShapeLayers.forEach(record => {
             const layerVisible = shouldShowLocalShapeLayer(record.layerInfo, record.visible);
             record.primitives.forEach(primitive => {
                 primitive.show = layerVisible && is3D;
+            });
+            record.dataSources3D.forEach(dataSource => {
+                dataSource.show = layerVisible && is3D;
             });
             record.dataSources2D.forEach(dataSource => {
                 dataSource.show = layerVisible && is2D;
@@ -438,19 +485,46 @@ window.mapDrawing =  (function() {
             { length: Math.min(2, recordsToCreate.length) },
             createWorker
         ));
+
+        // 모드 전환 도중 시작된 이전 비동기 작업은 최종 표시 상태를 덮어쓰지 않는다.
+        if (generation !== localShapeSceneModeGeneration || viewer.scene.mode !== targetMode) return;
+        localShapeLayers.forEach(record => {
+            const layerVisible = shouldShowLocalShapeLayer(record.layerInfo, record.visible);
+            record.primitives.forEach(primitive => {
+                primitive.show = layerVisible && targetMode === Cesium.SceneMode.SCENE3D;
+            });
+            record.dataSources3D.forEach(dataSource => {
+                dataSource.show = layerVisible && targetMode === Cesium.SceneMode.SCENE3D;
+            });
+            record.dataSources2D.forEach(dataSource => {
+                dataSource.show = layerVisible && targetMode === Cesium.SceneMode.SCENE2D;
+            });
+            record.labels.forEach(collection => {
+                collection.show = layerVisible &&
+                    (targetMode === Cesium.SceneMode.SCENE2D || targetMode === Cesium.SceneMode.SCENE3D);
+            });
+        });
         viewer.scene.requestRender();
     }
 
     function ensureLocalShapeSceneModeListener() {
         if (localShapeSceneModeListenerRegistered) return;
         viewer.scene.morphStart.addEventListener(() => {
+            // 진행 중인 이전 모드의 비동기 완료 처리를 무효화한다.
+            localShapeSceneModeGeneration += 1;
             localShapeLayers.forEach(record => {
                 record.primitives.forEach(primitive => { primitive.show = false; });
+                record.dataSources3D.forEach(dataSource => { dataSource.show = false; });
+                record.dataSources2D.forEach(dataSource => { dataSource.show = false; });
+                record.labels.forEach(collection => { collection.show = false; });
             });
         });
         viewer.scene.morphComplete.addEventListener(() => {
-            syncLocalShapeSceneMode().catch(error => {
-                console.error('[mapDrawing] 2D/3D 로컬 SHAPE 전환 실패:', error);
+            // 메뉴의 카메라 중심/축척 복원이 끝난 다음 프레임에 SHP 축척을 판정한다.
+            requestAnimationFrame(() => {
+                syncLocalShapeSceneMode().catch(error => {
+                    console.error('[mapDrawing] 2D/3D 로컬 SHAPE 전환 실패:', error);
+                });
             });
         });
         localShapeSceneModeListenerRegistered = true;
@@ -461,9 +535,11 @@ window.mapDrawing =  (function() {
         record.disposed = true;
         record.primitives.forEach(primitive => viewer.scene.primitives.remove(primitive));
         record.labels.forEach(collection => viewer.scene.primitives.remove(collection));
+        record.dataSources3D.forEach(dataSource => viewer.dataSources.remove(dataSource, true));
         record.dataSources2D.forEach(dataSource => viewer.dataSources.remove(dataSource, true));
         record.primitives.length = 0;
         record.labels.length = 0;
+        record.dataSources3D.length = 0;
         record.dataSources2D.length = 0;
     }
 
@@ -586,6 +662,7 @@ window.mapDrawing =  (function() {
         options.onStage?.({ stage: 'render', layerName });
         const primitives = [];
         const labels = [];
+        const dataSources3D = [];
         const isLabelLayer = String(layerInfo.displayType).toUpperCase() === 'LABEL';
         try {
             for (const geoJson of collections) {
@@ -607,15 +684,39 @@ window.mapDrawing =  (function() {
                         viewer.scene.primitives.add(labelCollection);
                         labels.push(labelCollection);
                     } else {
-                        const primitive = Cesium.GeoJsonPrimitive.fromGeoJson(chunk, {
-                            show: shouldShowLocalShapeLayer(layerInfo, visible) &&
-                                viewer.scene.mode === Cesium.SceneMode.SCENE3D,
-                            allowPicking: options.allowPicking !== false
+                        // 3D에서는 Entity/GroundPrimitive 경로를 사용하여 점·선·면이
+                        // 지형 표면을 따라가게 한다. Buffer 기반 GeoJsonPrimitive는
+                        // 고도 0의 타원체 표면에 고정되어 실제 지형 아래로 가려진다.
+                        const dataSource = await Cesium.GeoJsonDataSource.load(chunk, {
+                            clampToGround: true,
+                            stroke: Cesium.Color.CYAN,
+                            strokeWidth: 2,
+                            fill: Cesium.Color.CYAN.withAlpha(0.24),
+                            markerColor: Cesium.Color.YELLOW,
+                            markerSize: 16
                         });
-                        primitive.name = layerInfo.name || geoJson.fileName || layerName;
-                        applyXmlStylesToGeoJsonPrimitive(primitive, layerInfo);
-                        viewer.scene.primitives.add(primitive);
-                        primitives.push(primitive);
+                        dataSource.name = layerInfo.name || geoJson.fileName || layerName;
+                        dataSource.show = shouldShowLocalShapeLayer(layerInfo, visible) &&
+                            viewer.scene.mode === Cesium.SceneMode.SCENE3D;
+                        dataSource.entities.values.forEach(entity => {
+                            selectXmlStyles(entity, layerInfo).forEach(style =>
+                                applyXmlStyle(entity, style, { clampToGround: true })
+                            );
+                            if (entity.point) {
+                                entity.point.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+                                entity.point.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+                            }
+                            if (entity.billboard) {
+                                entity.billboard.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+                                entity.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+                            }
+                            if (entity.label) {
+                                entity.label.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+                                entity.label.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+                            }
+                        });
+                        await viewer.dataSources.add(dataSource);
+                        dataSources3D.push(dataSource);
                     }
                     options.onFeatureProgress?.({
                         completed: Math.min(features.length, offset + chunkSize),
@@ -626,6 +727,7 @@ window.mapDrawing =  (function() {
         } catch (error) {
             primitives.forEach(primitive => viewer.scene.primitives.remove(primitive));
             labels.forEach(collection => viewer.scene.primitives.remove(collection));
+            dataSources3D.forEach(dataSource => viewer.dataSources.remove(dataSource, true));
             throw error;
         }
         const record = {
@@ -634,6 +736,7 @@ window.mapDrawing =  (function() {
             collections,
             primitives,
             labels,
+            dataSources3D,
             dataSources2D: [],
             dataSources2DPromise: null,
             visible: Boolean(visible),
@@ -647,7 +750,7 @@ window.mapDrawing =  (function() {
             await createLocalShape2DDataSources(record, options);
         }
         viewer.scene.requestRender();
-        return primitives;
+        return dataSources3D.length ? dataSources3D : primitives;
     }
 
     async function localShape(layerInfo, visible = true, options = {}) {
@@ -859,10 +962,41 @@ window.mapDrawing =  (function() {
     function getCurrentScaleDenominator() {
         if (!viewer || !viewer.camera || !viewer.scene) return 1;
 
-        const height = Math.max(1, viewer.camera.positionCartographic.height);
+        const scene = viewer.scene;
+        const camera = viewer.camera;
+        const canvasWidth = Math.max(1, scene.canvas.clientWidth);
         const canvasHeight = Math.max(1, viewer.scene.canvas.clientHeight);
-        const fovy = viewer.camera.frustum.fovy || Cesium.Math.toRadians(60);
-        const metersPerPixel = (2 * height * Math.tan(fovy / 2)) / canvasHeight;
+        let metersPerPixel;
+
+        // SceneMode와 무관하게 동일한 기준으로 계산 가능한 Cesium의 실제
+        // 화면 픽셀 크기를 우선 사용한다.
+        const center = new Cesium.Cartesian2(canvasWidth / 2, canvasHeight / 2);
+        const centerPosition = camera.pickEllipsoid(center, scene.globe.ellipsoid);
+        if (Cesium.defined(centerPosition)) {
+            const pixelSize = camera.getPixelSize(
+                new Cesium.BoundingSphere(centerPosition, 1),
+                Math.max(1, scene.drawingBufferWidth),
+                Math.max(1, scene.drawingBufferHeight)
+            );
+            if (Number.isFinite(pixelSize) && pixelSize > 0) metersPerPixel = pixelSize;
+        }
+
+        if (!Number.isFinite(metersPerPixel) && scene.mode === Cesium.SceneMode.SCENE2D) {
+            // 2D는 원근 투영의 카메라 높이/fovy가 아니라 직교 frustum의 실제 폭을 사용한다.
+            const frustum = camera.frustum;
+            const frustumWidth = Number.isFinite(frustum.width)
+                ? frustum.width
+                : Number.isFinite(frustum.right) && Number.isFinite(frustum.left)
+                    ? frustum.right - frustum.left
+                    : NaN;
+            metersPerPixel = frustumWidth / canvasWidth;
+        } else if (!Number.isFinite(metersPerPixel)) {
+            const height = Math.max(1, camera.positionCartographic.height);
+            const fovy = camera.frustum.fovy || Cesium.Math.toRadians(60);
+            metersPerPixel = (2 * height * Math.tan(fovy / 2)) / canvasHeight;
+        }
+
+        if (!Number.isFinite(metersPerPixel) || metersPerPixel <= 0) return 1;
 
         // CSS 표준 해상도 96dpi를 기준으로 축척 분모 계산
         return metersPerPixel * (96 / 0.0254);
@@ -980,7 +1114,7 @@ window.mapDrawing =  (function() {
         return imageryLayer || null;
     }
 
-    function applyXmlStyle(entity, style) {
+    function applyXmlStyle(entity, style, options = {}) {
         if (!style) return;
 
         const styleType = String(style.type || '').toUpperCase();
@@ -997,7 +1131,7 @@ window.mapDrawing =  (function() {
         if ((styleType === 'LINE' || entity.polyline) && entity.polyline) {
             entity.polyline.material = lineColor;
             entity.polyline.width = width;
-            entity.polyline.clampToGround = true;
+            entity.polyline.clampToGround = options.clampToGround !== false;
         }
 
         if (styleType === 'POINT' || entity.point || entity.billboard) {

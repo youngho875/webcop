@@ -380,7 +380,8 @@ window.unifiedControlPanel = (function () {
 
     document.getElementById("editSelectedIcopSymbol").onclick = () => {
       cancelMultipointDrawing(true);
-      window.IcopSymbolEditor.open(currentSymbolMetadata, null, ({state,sidc,symbolOptions}) => {
+      // 상단에서 현재 선택한 피아식별이 이전 임시저장값보다 우선하도록 편집창에 전달한다.
+      window.IcopSymbolEditor.open({...currentSymbolMetadata, activeSidc: currentSidc}, null, ({state,sidc,symbolOptions}) => {
         currentSymbolMetadata = {...currentSymbolMetadata, icopEditor:state, symbolOptions};
         currentSidc = currentSymbolMetadata.selectable === false ? "" : sidc;
         if (!sidc.startsWith("W")) sympo2.value = "-PUFNHASGWDLMJK".includes(sidc[1]) ? sidc[1] : "-";
@@ -1903,6 +1904,55 @@ window.unifiedControlPanel = (function () {
     });
   }
 
+  function importSerializedEntities(records) {
+    const viewer = window.CesiumViewer;
+    if (!viewer || !Array.isArray(records)) return [];
+    const created = [];
+    records.forEach(data => {
+      if (data?.kind === "multipointTacticalGraphic" && Array.isArray(data.positions)) {
+        const entity = addStaticMultipointGraphic(viewer, data);
+        const first = data.positions[0];
+        if (entity) {
+          created.push(entity);
+          if (first) addEntityToListBox(entity, data.name, first.lon, first.lat, `${data.positions.length}개 지점`);
+          document.dispatchEvent(new CustomEvent("military-symbol-added", { detail: { entity } }));
+        }
+        return;
+      }
+      if (data?.kind !== "militaryPoint" || !data.sidc) return;
+      const longitude = Number(data.longitude);
+      const latitude = Number(data.latitude);
+      const height = Number(data.height) || 0;
+      if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return;
+      try {
+        const svg = data.symbolMetadata?.renderer === "icop-svg"
+          ? window.IcopSvgRenderer.render(data.symbolMetadata, data.sidc, { size: 60, ...(data.symbolOptions || {}) }, data.icopEditor?.values || {})
+          : new ms.Symbol(data.sidc, { size: 60, ...(data.symbolOptions || {}) }).asSVG();
+        const entity = viewer.entities.add({
+          name: data.name || "군대부호",
+          position: Cesium.Cartesian3.fromDegrees(longitude, latitude, height),
+          billboard: {
+            image: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg),
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          }
+        });
+        entity.customData = {
+          militarySymbol: true, source: "unifiedControlPanel", displayName: entity.name,
+          sidc: data.sidc, symbolOptions: data.symbolOptions || {}, icopCode: data.icopCode || null,
+          symbolMetadata: data.symbolMetadata || null, icopEditor: data.icopEditor || null
+        };
+        created.push(entity);
+        addEntityToListBox(entity, entity.name, longitude, latitude, `${height.toFixed(2)} m`);
+        document.dispatchEvent(new CustomEvent("military-symbol-added", { detail: { entity } }));
+      } catch (error) {
+        console.error("저장된 군대부호를 복원하지 못했습니다.", error, data);
+      }
+    });
+    viewer.scene.requestRender();
+    return created;
+  }
+
   function setupWaypointLogic() {
     document.getElementById("addWaypointBtn")?.addEventListener("click", async () => {
       const lon = parseFloat(document.getElementById("lonInput").value);
@@ -2084,6 +2134,7 @@ window.unifiedControlPanel = (function () {
     toggleControl: toggleUI,
     toggleMilitary: toggleMilitaryUI,
     openMilitary: () => toggleMilitaryUI(true),
+    importSerializedEntities,
     previewTactical(metadata, entity, state, sidc) {
       const points = entity?.customData?.positions || tacticalPreviewCoordinates(sidc,metadata.geometry,state.values);
       return renderMilitaryTacticalGraphic(getMultipointViewer(), sidc, points, state.name,
