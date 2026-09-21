@@ -34,6 +34,13 @@
             box-sizing: border-box;
         }
 
+        #menu[hidden], #main-menu-show-button[hidden] { display: none !important; }
+        #main-menu-show-button {
+            position: fixed; top: 15px; left: 8px; transform: none;
+            z-index: 20001; padding: 8px 14px; border-radius: 18px;
+            color: #fff; background: rgba(20,20,20,0.9);
+            border: 1px solid #64748b; cursor: pointer;
+        }
         #menu.menu-vertical {
             flex-direction: column;
             flex-wrap: nowrap;
@@ -299,6 +306,29 @@
     menu.id = 'menu';
     document.body.appendChild(menu);
 
+    const showMenuButton = document.createElement('button');
+    showMenuButton.id = 'main-menu-show-button';
+    showMenuButton.type = 'button';
+    showMenuButton.textContent = '☰ 메뉴 보이기';
+    showMenuButton.hidden = true;
+    document.body.appendChild(showMenuButton);
+    function setMainMenuVisible(visible) {
+        menu.hidden = !visible;
+        showMenuButton.hidden = visible;
+        if (!visible) updateShowMenuButtonPosition();
+        document.dispatchEvent(new CustomEvent('main-menu-visibility-changed', { detail: { visible } }));
+        if (visible) requestAnimationFrame(() => window.MainMenuLayout?.refresh());
+    }
+    showMenuButton.addEventListener('click', () => {
+        setMainMenuVisible(true);
+        // 보이기로 복원할 때는 저장된 세로 방향/드래그 위치 대신 상단 가로 메뉴로 표시한다.
+        window.MainMenuLayout?.setOrientation('horizontal');
+    });
+    window.MainMenuControl = Object.freeze({
+        isVisible: () => !menu.hidden,
+        setVisible: visible => setMainMenuVisible(Boolean(visible))
+    });
+
     const MENU_ORIENTATION_KEY = 'webcop-main-menu-orientation';
     const MENU_GAP = 8;
 
@@ -322,6 +352,34 @@
             if (visibleElement(element)) right = Math.min(right, element.getBoundingClientRect().left - MENU_GAP);
         });
         return { left, right, top: MENU_GAP, bottom: window.innerHeight - MENU_GAP };
+    }
+
+    function updateShowMenuButtonPosition() {
+        if (showMenuButton.hidden) return;
+        // 메뉴 복원 버튼은 접힌 바도 피해야 한다. 본 메뉴의 중앙 정렬과 달리
+        // layer-dock-collapsed를 제외하지 않고 실제 표시된 바의 가장자리를 사용한다.
+        const bounds = { left: MENU_GAP, right: window.innerWidth - MENU_GAP };
+        let dockTop = 15;
+        const leftDocks = [];
+        document.querySelectorAll('.layer-dialog-container.layer-docked-left').forEach(element => {
+            const computed = getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            if (computed.display === 'none' || computed.visibility === 'hidden' ||
+                Number(computed.opacity) === 0 || rect.width <= 0 || rect.height <= 0) return;
+            leftDocks.push(rect);
+        });
+        if (leftDocks.length) {
+            const dock = leftDocks.reduce((a, b) => a.right >= b.right ? a : b);
+            bounds.left = dock.right + 4;
+            dockTop = dock.top + 15;
+        }
+        const width = showMenuButton.offsetWidth;
+        // 오른쪽 도킹바는 무시하고 항상 화면 왼쪽을 기준으로 배치한다.
+        const preferredLeft = bounds.left;
+        const left = Math.max(MENU_GAP, Math.min(preferredLeft, window.innerWidth - width - MENU_GAP));
+        const top = Math.max(MENU_GAP, Math.min(dockTop, window.innerHeight - showMenuButton.offsetHeight - MENU_GAP));
+        if (showMenuButton.style.left !== `${left}px`) showMenuButton.style.left = `${left}px`;
+        if (showMenuButton.style.top !== `${top}px`) showMenuButton.style.top = `${top}px`;
     }
 
     function placeMenuInsideAvailableArea(preferredLeft, preferredTop) {
@@ -374,11 +432,15 @@
     }
 
     function alignMenuForCurrentLayout() {
+        updateShowMenuButtonPosition();
+        if (menu.hidden) return;
         if (menu.classList.contains('menu-vertical')) alignVerticalMenuToSide();
         else centerMenuInAvailableArea();
     }
 
     function refreshMenuPosition() {
+        updateShowMenuButtonPosition();
+        if (menu.hidden) return;
         if (isDragging) return;
         const rect = menu.getBoundingClientRect();
         placeMenuInsideAvailableArea(rect.left, rect.top);
@@ -394,8 +456,13 @@
         menu.dataset.orientation = next;
         if (persist) localStorage.setItem(MENU_ORIENTATION_KEY, next);
         requestAnimationFrame(() => {
+            if (menu.dataset.orientation !== next) return;
             if (next === 'vertical') alignVerticalMenuToSide();
-            else centerMenuInAvailableArea();
+            else {
+                // 세로 메뉴의 중앙 높이를 이어받지 않고 가로 메뉴의 상단 위치로 복원한다.
+                menu.style.top = '15px';
+                centerMenuInAvailableArea();
+            }
             globalThis.DialogBelowMainMenu?.refresh?.();
         });
         document.dispatchEvent(new CustomEvent('main-menu-orientation-changed', { detail: { orientation: next } }));
@@ -629,7 +696,7 @@
     const HOME_VIEW_DESTINATION = Cesium.Cartesian3.fromDegrees(127.0, 37.5, 800000.0);
 
     // 홈 뷰 (단독 버튼)
-    const homeButton = createIconButton('🏠 Home', 'home', () => {
+    const homeButton = createIconButton('🏠 Home', 'Home', () => {
         viewer.camera.flyTo({
             destination: HOME_VIEW_DESTINATION,
             orientation: {
@@ -641,7 +708,7 @@
     });
 
     // 🗺️ 지도 레이어 관리
-    createIconButton('🗺️ 레이어 관리', 'layers', () => {
+    createIconButton('🗺️ 레이어 관리', 'Layers', () => {
         if (window.LayerManager && typeof window.LayerManager.open === 'function') {
             window.LayerManager.open();
         } else {
@@ -661,7 +728,7 @@
         }
     }
 
-    const militaryDropContent = createDropdownIconButton('🎨 군대부호', 'military-tech');
+    const militaryDropContent = createDropdownIconButton('🎨 군대부호', 'Military-Tech');
     const militaryNewLink = document.createElement('a');
     militaryNewLink.href = '#';
     militaryNewLink.textContent = '신규생성';
@@ -788,7 +855,7 @@
         }
     });
 
-    // 💡 헬퍼 2: 마우스 지연 반응 타이머 기반 드롭다운 생성 함수
+    // 마우스 지연 반응 타이머 기반 드롭다운 생성 함수
     function createDropdownIconButton(tooltipText, iconName) {
         const wrapper = document.createElement('div');
         wrapper.className = 'dropdown-wrapper';
@@ -869,6 +936,7 @@
         };
 
         const showMenu = () => {
+            if (menu.hidden) return;
             if (closeTimer) {
                 clearTimeout(closeTimer);
                 closeTimer = null;
@@ -894,6 +962,13 @@
             if (contentDiv.classList.contains('viewport-dropdown-detached')) positionDropdownInsideViewport();
         }, { passive: true });
         document.addEventListener('main-menu-orientation-changed', () => {
+            if (closeTimer) clearTimeout(closeTimer);
+            closeTimer = null;
+            contentDiv.style.display = 'none';
+            restoreDropdown();
+        });
+        document.addEventListener('main-menu-visibility-changed', event => {
+            if (event.detail.visible) return;
             if (closeTimer) clearTimeout(closeTimer);
             closeTimer = null;
             contentDiv.style.display = 'none';
@@ -1014,6 +1089,7 @@
 
     createVisibilityToggle('스케일바', 'ScaleBarControl', 'scalebar-visibility-changed');
     createVisibilityToggle('Status Bar', 'StatusBarControl', 'statusbar-visibility-changed');
+    createVisibilityToggle('메인메뉴 보이기/감추기', 'MainMenuControl', 'main-menu-visibility-changed');
 
     // GPS 장비 데이터 수신 방식 선택
     const gpsReceiveGroup = document.createElement('details');
@@ -1206,7 +1282,7 @@
     });
 
     // 4. ⭐ 즐겨찾기 (드롭다운 아이콘)
-    const favDropContent = createDropdownIconButton('⭐ 즐겨찾기', 'star');
+    const favDropContent = createDropdownIconButton('⭐ 즐겨찾기', 'Star');
 
     let favoriteManagerPanel = null;
     let userFavorites = [];
@@ -1392,7 +1468,7 @@
 
 
     // 4. 📐 측정 도구 (드롭다운 아이콘)
-    const measureDropContent = createDropdownIconButton('📐 측정 기능 모음', 'straighten');
+    const measureDropContent = createDropdownIconButton('📐 측정 기능 모음', 'Straighten');
     const measureActions = [
         { name: '📏 거리 측정', action: () => { if(window.distance) distance.start(); } },
         { name: '📐 면적 측정', action: () => { if(window.measure) measure.start(); } },
@@ -1414,7 +1490,7 @@
 
 
     // 5. 🚀 대탄도탄 작전 (드롭다운 아이콘)
-    const opDropContent = createDropdownIconButton('🚀 대탄도탄 작전 모음', 'rocket-launch');
+    const opDropContent = createDropdownIconButton('🚀 대탄도탄 작전 모음', 'Rocket-Launch');
     const opActions = [
         { name: '🗺️ 공역생성', children: [
             { name: '신규생성', action: () => {
@@ -1505,7 +1581,7 @@
 
 
     // 6. ✏️ 그리기 도구 (드롭다운 아이콘)
-    const drawDropContent = createDropdownIconButton('✏️ 자유 투명도 그리기', 'edit');
+    const drawDropContent = createDropdownIconButton('✏️ 자유 투명도 그리기', 'Edit');
     drawDropContent.classList.add('draw-dropdown-content');
     let customDrawingHandler = null;
     let customDrawingCameraLocked = false;
@@ -2285,6 +2361,19 @@
         }
     });
 
+    const communicationMenu = createDropdownIconButton('통신설정', 'communication');
+    [['소켓통신설정', 'SocketSettingDialog'], ['MQTT통신설정', 'MqttSettingDialog']].forEach(([label, dialogApi]) => {
+        const link = document.createElement('a');
+        link.href = '#';
+        link.textContent = label;
+        link.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            window[dialogApi]?.show();
+        });
+        communicationMenu.appendChild(link);
+    });
+
     // 환경 설정 (Base Map, GPS, 화면 설정)
     createIconButton('⚙️ 설정', 'settings', () => {
         if (window.SettingDialog && typeof window.SettingDialog.toggle === 'function') {
@@ -2295,7 +2384,7 @@
     });
 
     // 💡 지도 레이어를 제외한 모든 엔티티, 측정선, 군대부호, 그리기 객체를 삭제하고 모듈을 초기화합니다.
-    createIconButton('🔄 초기화', 'refresh', () => {
+    createIconButton('🔄 초기화', 'Refresh', () => {
         clearDrawingHistory();
         // 활성화된 그리기/편집 이벤트를 먼저 끊어 삭제 후 지도 클릭으로 다시 그려지지 않게 한다.
         deactivateAllDrawActions();

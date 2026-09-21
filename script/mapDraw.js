@@ -78,7 +78,7 @@ window.mapDrawing =  (function() {
         viewer.imageryLayers.remove(viewer.imageryLayers.get(0));
 
         var world = new Cesium.WebMapServiceImageryProvider({
-            url : "http://10.240.33.120/cgi-bin/mapserv.exe?map=/ms4w/apps/local-demo/ne1_hr.map",
+            url : "http://localhost/cgi-bin/mapserv.exe?map=/ms4w/apps/local-demo/ne1_hr.map",
             // map: "/ms4w/apps/local-demo/land_200m.map",
             layers : "NE1_HR",
             parameters : {
@@ -1174,6 +1174,7 @@ window.mapDrawing =  (function() {
      */
     async function geojsonCreate(layerInfo, visible = true) {
         if (typeof layerInfo === 'string') {
+// sourcery skip: dont-reassign-parameters
             layerInfo = { source: layerInfo, name: layerInfo };
         }
         if (!layerInfo || !layerInfo.source) {

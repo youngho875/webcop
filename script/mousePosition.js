@@ -155,6 +155,7 @@
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
     let dragging = false;
+    let bottomAnchored = true;
     let offsetX = 0;
     let offsetY = 0;
     const COLLISION_GAP = 8;
@@ -246,11 +247,13 @@
     function adjustStatusBarPosition() {
         if (dragging || statusBar.hidden) return;
         const rect = statusBar.getBoundingClientRect();
-        placeStatusBar(rect.left, rect.top);
+        const top = bottomAnchored ? getLayoutBounds().bottom - statusBar.offsetHeight : rect.top;
+        placeStatusBar(rect.left, top);
     }
 
     function centerStatusBarInAvailableArea() {
         if (dragging || statusBar.hidden) return;
+        bottomAnchored = true;
         const bounds = getLayoutBounds();
         const availableWidth = Math.max(180, bounds.right - bounds.left);
         statusBar.style.maxWidth = `${availableWidth}px`;
@@ -263,6 +266,7 @@
         if (event.button !== 0) return;
         const rect = statusBar.getBoundingClientRect();
         dragging = true;
+        bottomAnchored = false;
         offsetX = event.clientX - rect.left;
         offsetY = event.clientY - rect.top;
         statusBar.style.transform = 'none';
@@ -291,6 +295,7 @@
         viewer.scene.screenSpaceCameraController.enableInputs = true;
         if (event && dragHandle.hasPointerCapture(event.pointerId)) dragHandle.releasePointerCapture(event.pointerId);
         const rect = statusBar.getBoundingClientRect();
+        bottomAnchored = Math.abs(rect.bottom - getLayoutBounds().bottom) <= COLLISION_GAP;
         placeStatusBar(rect.left, rect.top);
     }
     dragHandle.addEventListener('pointerup', stopDragging);
@@ -324,12 +329,16 @@
     document.querySelectorAll('.layer-dialog-container, .dock-bar').forEach(element => {
         layoutResizeObserver.observe(element);
     });
-    window.addEventListener('resize', adjustStatusBarPosition);
+    function handleViewportResize() {
+        bottomAnchored = true;
+        requestAnimationFrame(centerStatusBarInAvailableArea);
+    }
+    window.addEventListener('resize', handleViewportResize);
     document.addEventListener('layer-dock-layout-changed', function (event) {
         requestAnimationFrame(centerStatusBarInAvailableArea);
     });
     if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', adjustStatusBarPosition);
+        window.visualViewport.addEventListener('resize', handleViewportResize);
         window.visualViewport.addEventListener('scroll', adjustStatusBarPosition);
     }
     requestAnimationFrame(adjustStatusBarPosition);

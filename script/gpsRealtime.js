@@ -1,6 +1,98 @@
 /** MQTT/WebSocket 다중 장비 GPS를 Cesium에 표시하는 모듈 */
 window.realtimeGps = (function () {
   const devices = new Map();
+  const DEVICE_COLORS_KEY = 'webcop-gps-device-colors';
+  const autoColors = ['#00cfff', '#ff9f43', '#72e572', '#e879f9', '#ffe066', '#ff6b6b', '#a78bfa', '#2dd4bf'];
+  const deviceColors = new Map();
+  const RAT_COLORS_KEY = 'webcop-gps-rat-colors';
+  const defaultRatColors = { '5G': '#00cfff', 'D2D': '#72e572', 'X위성': '#ff9f43', 'L위성': '#e879f9', 'RAT 없음': '#ffe066' };
+  let ratColors = { ...defaultRatColors };
+  try {
+    const saved = JSON.parse(localStorage.getItem(RAT_COLORS_KEY) || '{}');
+    Object.keys(defaultRatColors).forEach(rat => {
+      if (/^#[0-9a-f]{6}$/i.test(saved?.[rat])) ratColors[rat] = saved[rat];
+    });
+  } catch (error) { console.warn('[GPS 색상] 통신 유형 설정 읽기 실패:', error); }
+
+  function normalizeRat(rat) {
+    const key = String(rat || '').replace(/\s+/g, '').toLowerCase();
+    if (!key || key === 'rat없음') return 'RAT 없음';
+    return { '5g': '5G', 'd2d': 'D2D', 'x위성': 'X위성', 'l위성': 'L위성' }[key] || '';
+  }
+
+  function getRatColor(rat) {
+    return ratColors[normalizeRat(rat)] || null;
+  }
+
+  function setRatColors(colors) {
+    const next = {};
+    for (const rat of Object.keys(defaultRatColors)) {
+      if (!/^#[0-9a-f]{6}$/i.test(colors?.[rat])) return false;
+      next[rat] = colors[rat].toLowerCase();
+    }
+    try { localStorage.setItem(RAT_COLORS_KEY, JSON.stringify(next)); }
+    catch (error) { console.warn('[GPS 색상] 통신 유형 설정 저장 실패:', error); return false; }
+    ratColors = next;
+    refreshAllMarkers();
+    document.dispatchEvent(new CustomEvent('gps-rat-colors-changed'));
+    return true;
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem(DEVICE_COLORS_KEY) || '{}');
+    Object.entries(saved || {}).forEach(([id, color]) => {
+      if (/^#[0-9a-f]{6}$/i.test(color)) deviceColors.set(id, color);
+    });
+  } catch (error) { console.warn('[GPS 색상] 저장된 설정 읽기 실패:', error); }
+
+  function getDeviceColor(deviceId, rat) {
+    const id = String(deviceId);
+    if (rat === undefined) {
+      const record = devices.get(deviceId) || devices.get(id);
+      if (record) rat = getLatestAllowed(record)?.rat;
+    }
+    const ratColor = getRatColor(rat);
+    if (ratColor) return ratColor;
+    if (deviceColors.has(id)) return deviceColors.get(id);
+    let hash = 0;
+    for (const character of id) hash = ((hash * 31) + character.codePointAt(0)) >>> 0;
+    return autoColors[hash % autoColors.length];
+  }
+
+  function getDeviceIds() {
+    return Array.from(devices.keys(), String).sort();
+  }
+
+  function clearDevices() {
+    const viewer = window.CesiumViewer;
+    devices.forEach(record => {
+      if (viewer?.selectedEntity === record.entity) viewer.selectedEntity = undefined;
+      if (viewer?.trackedEntity === record.entity) viewer.trackedEntity = undefined;
+      viewer?.entities.remove(record.entity);
+    });
+    devices.clear();
+    hasMovedToFirstGps = false;
+    viewer?.scene.requestRender();
+    document.dispatchEvent(new CustomEvent('gps-device-list-changed', { detail: { cleared: true } }));
+  }
+
+  function setDeviceColor(deviceId, color) {
+    const id = String(deviceId ?? '').trim();
+    if (!id || (color !== null && !/^#[0-9a-f]{6}$/i.test(color))) return false;
+    const next = new Map(deviceColors);
+    if (color === null) next.delete(id);
+    else next.set(id, color.toLowerCase());
+    try {
+      localStorage.setItem(DEVICE_COLORS_KEY, JSON.stringify(Object.fromEntries(next)));
+    } catch (error) {
+      console.warn('[GPS 색상] 설정 저장 실패:', error);
+      return false;
+    }
+    deviceColors.clear();
+    next.forEach((value, key) => deviceColors.set(key, value));
+    refreshAllMarkers();
+    document.dispatchEvent(new CustomEvent('gps-device-colors-changed'));
+    return true;
+  }
   let socket = null;
   let reconnectTimer = null;
   let mode = 'websocket';
@@ -9,6 +101,17 @@ window.realtimeGps = (function () {
   let reconnectAttempt = 0;
   let connectionGeneration = 0;
   let shouldReconnect = true;
+  let processingPaused = false;
+
+  function setPaused(paused) {
+    processingPaused = Boolean(paused);
+    document.dispatchEvent(new CustomEvent('gps-processing-state-changed', {
+      detail: { paused: processingPaused }
+    }));
+    writeSocketLog('info', processingPaused
+      ? '데이터 처리 중지: 연결은 유지하며 수신 GPS 데이터를 무시합니다.'
+      : '데이터 처리 재시작: 이후 수신되는 GPS 데이터부터 처리합니다.');
+  }
   const WEBSOCKET_SETTINGS_KEY = 'webcop-websocket-settings';
 
   function defaultUrl() {
@@ -50,7 +153,7 @@ window.realtimeGps = (function () {
   function getLatestAllowed(record) {
     return Object.values(record.sources)
       .filter(data => sourceAllowed(data.source))
-      .sort((a, b) => b.timestamp - a.timestamp)[0] || null;
+      .sort((a, b) => b.timestamp - a.timestamp)[0] || record.manual || null;
   }
 
   function createEntity(deviceId) {
@@ -61,7 +164,7 @@ window.realtimeGps = (function () {
       position: Cesium.Cartesian3.ZERO,
       point: {
         pixelSize: 13,
-        color: Cesium.Color.CYAN,
+        color: Cesium.Color.fromCssColorString(getDeviceColor(deviceId)),
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 2,
         heightReference: Cesium.HeightReference.NONE,
@@ -100,14 +203,17 @@ window.realtimeGps = (function () {
 
   function renderRecord(record) {
     const data = getLatestAllowed(record);
-    record.entity.show = Boolean(data) && mode !== 'off';
-    if (!data || mode === 'off') return;
+    record.entity.show = Boolean(data) && (mode !== 'off' || data.source === 'manual');
+    if (!data || (mode === 'off' && data.source !== 'manual')) return;
 
     record.entity.position = Cesium.Cartesian3.fromDegrees(
       data.longitude, data.latitude, data.altitude
     );
-    record.entity.point.color = data.source === 'mqtt'
-      ? Cesium.Color.ORANGE : Cesium.Color.CYAN;
+    record.entity.point.color = Cesium.Color.fromCssColorString(getDeviceColor(data.deviceId, data.rat));
+    const heightReference = data.source === 'manual' && data.clampToGround
+      ? Cesium.HeightReference.CLAMP_TO_GROUND : Cesium.HeightReference.NONE;
+    record.entity.point.heightReference = heightReference;
+    record.entity.label.heightReference = heightReference;
     record.entity.label.text = data.rat
       ? `ID: ${data.deviceId}\n접속망: ${data.rat}`
       : `ID: ${data.deviceId}`;
@@ -121,7 +227,47 @@ window.realtimeGps = (function () {
     viewer.scene.requestRender();
   }
 
+  function setManualDevice(input = {}) {
+    const id = String(input.deviceId || '').trim();
+    const latText = String(input.latitude ?? '').trim();
+    const lonText = String(input.longitude ?? '').trim();
+    const altitudeText = String(input.altitude ?? '').trim();
+    const latitude = Number(latText), longitude = Number(lonText);
+    const altitude = altitudeText ? Number(altitudeText) : 0;
+    if (!id || !latText || !lonText || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+        !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !Number.isFinite(altitude)) return false;
+    let record = devices.get(id);
+    if (!record) {
+      record = { entity: createEntity(id), sources: {} };
+      devices.set(id, record);
+    }
+    record.manual = { deviceId: id, latitude, longitude, altitude, rat: String(input.rat || '').trim(),
+      source: 'manual', clampToGround: !altitudeText, timestamp: Date.now() };
+    refreshAllMarkers();
+    document.dispatchEvent(new CustomEvent('gps-device-list-changed'));
+    return true;
+  }
+
+  function removeManualDevice(deviceId) {
+    const id = String(deviceId || '').trim();
+    const record = devices.get(id);
+    if (!record?.manual) return false;
+    delete record.manual;
+    if (!Object.keys(record.sources).length) {
+      const viewer = window.CesiumViewer;
+      if (viewer.selectedEntity === record.entity) viewer.selectedEntity = undefined;
+      if (viewer.trackedEntity === record.entity) viewer.trackedEntity = undefined;
+      viewer.entities.remove(record.entity);
+      devices.delete(id);
+    }
+    refreshAllMarkers();
+    document.dispatchEvent(new CustomEvent('gps-device-list-changed'));
+    return true;
+  }
+
   function receive(data) {
+    // 중지 중 들어온 데이터는 저장하지 않는다. 재시작 시 재생할 버퍼도 없다.
+    if (processingPaused) return;
     if (data?.type !== 'gps' || !['mqtt', 'websocket'].includes(data.source)) {
       writeSocketLog('warn', '지원하지 않는 메시지를 무시했습니다.', data);
       return;
@@ -135,6 +281,7 @@ window.realtimeGps = (function () {
     if (!record) {
       record = { entity: createEntity(data.deviceId), sources: {} };
       devices.set(data.deviceId, record);
+      document.dispatchEvent(new CustomEvent('gps-device-list-changed'));
       writeSocketLog('success', `새 장비 표시: ${data.deviceId}`);
     }
     const previous = record.sources[data.source];
@@ -158,6 +305,8 @@ window.realtimeGps = (function () {
     const currentSocket = socket;
     socket = null;
     if (currentSocket && currentSocket.readyState < WebSocket.CLOSING) currentSocket.close(1000, '사용자 설정 변경');
+    clearDevices();
+    setPaused(false);
     setConnectionState('disconnected', { url: websocketUrl });
   }
 
@@ -179,13 +328,16 @@ window.realtimeGps = (function () {
 
     socket = new WebSocket(url);
     socket.addEventListener('open', () => {
+      if (generation !== connectionGeneration) return;
       reconnectAttempt = 0;
       setConnectionState('connected', { url });
       console.info(`[GPS WebSocket] 연결 성공: ${url}`);
     });
     socket.addEventListener('message', event => {
+      if (generation !== connectionGeneration || !shouldReconnect) return;
       try {
         const data = JSON.parse(event.data);
+        if (processingPaused && data?.type === 'gps') return;
         writeSocketLog(data?.type === 'gps' ? 'data' : 'info', 'WebSocket 메시지 수신', data);
         if (data?.type === 'connection') {
           console.info('[GPS WebSocket] 서버 연결 확인:', data);
@@ -200,6 +352,8 @@ window.realtimeGps = (function () {
     });
     socket.addEventListener('close', event => {
       if (generation !== connectionGeneration) return;
+      connectionGeneration += 1;
+      clearDevices();
       const reason = event.reason || '이유 없음';
       setConnectionState('disconnected', {
         code: event.code,
@@ -216,6 +370,7 @@ window.realtimeGps = (function () {
       reconnectTimer = setTimeout(() => connect(websocketUrl), 3000);
     });
     socket.addEventListener('error', event => {
+      if (generation !== connectionGeneration) return;
       setConnectionState('error', { url });
       console.error(`[GPS WebSocket] 연결 오류: ${url}`, event);
       socket?.close();
@@ -244,6 +399,17 @@ window.realtimeGps = (function () {
 
   connect();
   return {
+    setManualDevice,
+    removeManualDevice,
+    getRatColor,
+    setRatColors,
+    resetRatColors: () => setRatColors(defaultRatColors),
+    setPaused,
+    isPaused: () => processingPaused,
+    getDeviceIds,
+    getDeviceColor,
+    setDeviceColor,
+    resetDeviceColor: deviceId => setDeviceColor(deviceId, null),
     setMode,
     getMode: () => mode,
     getConnectionState: () => connectionState,
