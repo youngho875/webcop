@@ -96,34 +96,68 @@ function normalizeWebSocketPath(value) {
   return `/${pathText}`;
 }
 
-const mqttUrl = process.env.MQTT_URL || 'mqtt://localhost:1883';
-const mqttTopic = process.env.MQTT_TOPIC || 'gps/+/location';
-const mqttClient = mqtt.connect(mqttUrl, { reconnectPeriod: 5000 });
-let lastMqttErrorLogAt = 0;
-
-mqttClient.on('connect', () => {
-  mqttClient.subscribe(mqttTopic, { qos: 1 }, error => {
-    if (error) console.error('[MQTT] 구독 실패:', error.message);
-    else console.log(`[MQTT] ${mqttUrl} / ${mqttTopic} 구독 중`);
-  });
-});
-mqttClient.on('message', (topic, raw) => {
-  try {
-    const topicDeviceId = topic.split('/')[1];
-    const gps = normalizeGpsData('mqtt', JSON.parse(raw.toString()), topicDeviceId);
-    if (gps) broadcastGps(gps);
-  } catch (error) {
-    console.warn(`[MQTT] ${topic} 메시지 처리 실패:`, error.message);
-  }
-});
-mqttClient.on('error', error => {
-  const now = Date.now();
-  if (now - lastMqttErrorLogAt < 30000) return;
-  lastMqttErrorLogAt = now;
-  console.warn('[MQTT] 연결 오류:', error.message || error.code || '브로커에 연결할 수 없습니다.');
-});
+// MQTT는 통신설정에서 시작할 때만 연결한다. 미사용 시 접속/재시도하지 않는다.
+let mqttClient = null;
+let mqttStatus = { state: 'stopped', error: '' };
+function stopMqtt() {
+  const previous = mqttClient;
+  mqttClient = null;
+  mqttStatus = { state: 'stopped', error: '' };
+  if (previous) previous.end(true);
+}
 
 app.use(express.json({ limit: '100kb' }));
+
+app.get('/api/mqtt/status', (req, res) => res.json(mqttStatus));
+app.post('/api/mqtt/stop', (req, res) => {
+  stopMqtt();
+  res.json(mqttStatus);
+});
+app.post('/api/mqtt/start', (req, res) => {
+  const host = String(req.body?.host || '').trim();
+  const mqttPort = Number(req.body?.port);
+  const topicFilter = String(req.body?.topic || '').trim();
+  if (!/^[a-zA-Z0-9.-]+$/.test(host) || !Number.isInteger(mqttPort) || mqttPort < 1 || mqttPort > 65535 ||
+      !topicFilter || topicFilter.includes('\u0000') || topicFilter.length > 1024 ||
+      topicFilter.split('/').some((level, index, levels) =>
+        (level.includes('+') && level !== '+') ||
+        (level.includes('#') && (level !== '#' || index !== levels.length - 1)))) {
+    return res.status(400).json({ error: 'MQTT IP/호스트, 포트, 구독 토픽을 확인하세요.' });
+  }
+  stopMqtt();
+  const url = `${req.body?.tls === true ? 'mqtts' : 'mqtt'}://${host}:${mqttPort}`;
+  mqttStatus = { state: 'connecting', error: '', url, topic: topicFilter };
+  const client = mqtt.connect(url, {
+    reconnectPeriod: 5000, connectTimeout: 10000,
+    username: String(req.body?.username || '') || undefined,
+    password: String(req.body?.password || '') || undefined
+  });
+  mqttClient = client;
+  client.on('connect', () => {
+    if (mqttClient !== client) return;
+    client.subscribe(topicFilter, { qos: 1 }, (error, granted) => {
+      if (mqttClient !== client) return;
+      const denied = granted?.some(item => item.qos === 128);
+      mqttStatus.state = error || denied ? 'error' : 'connected';
+      mqttStatus.error = error?.message || (denied ? '브로커가 토픽 구독을 거부했습니다.' : '');
+    });
+  });
+  client.on('message', (topic, raw) => {
+    if (mqttClient !== client) return;
+    try {
+      const gps = normalizeGpsData('mqtt', JSON.parse(raw.toString()), topic.split('/')[1]);
+      if (gps) broadcastGps(gps);
+    } catch { /* GPS가 아닌 메시지는 무시한다. */ }
+  });
+  client.on('error', error => {
+    if (mqttClient !== client) return;
+    mqttStatus.state = 'error';
+    mqttStatus.error = error.message || error.code || 'MQTT 연결 실패';
+  });
+  client.on('reconnect', () => { if (mqttClient === client) mqttStatus.state = 'connecting'; });
+  client.on('close', () => { if (mqttClient === client && mqttStatus.state !== 'error') mqttStatus.state = 'disconnected'; });
+  res.json(mqttStatus);
+});
 
 app.get('/api/websocket/status', (req, res) => {
   res.json({ running: Boolean(customWebSocketHttpServer?.listening), config: customWebSocketConfig });
@@ -392,7 +426,7 @@ console.log(`Cesium development server running at http://192.168.0.32:${port}`);
 console.log(`GPS WebSocket endpoint: ws://192.168.0.32:${port}/gps-ws`);
 */
 
-server.listen(port, '127.0.0.1', () => {
+server.listen(port, '0.0.0.0', () => {
 console.log(`Cesium development server running at http://localhost:${port}`);
 console.log(`GPS WebSocket endpoint: ws://localhost:${port}/gps-ws`);
 
