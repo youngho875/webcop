@@ -25,7 +25,7 @@
                 left: calc(50vw - 175px);
                 z-index: 2250;
                 width: min(350px, calc(100vw - 16px));
-                height: min(500px, calc(100vh - 16px));
+                height: min(400px, calc(100vh - 16px));
                 color: #f4f4f5;
                 background: linear-gradient(145deg, rgba(44, 47, 52, 0.98), rgba(31, 33, 37, 0.98));
                 border: 1px solid rgba(255, 255, 255, 0.13);

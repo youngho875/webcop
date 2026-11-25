@@ -15,16 +15,17 @@
                 width: 100px;
                 height: 100px;
                 z-index: 999;
-                border: 2px solid #333;
-                border-radius: 50%;
                 overflow: hidden;
-                background: rgba(255, 255, 255, 0.9);
+                background: transparent;
+                border: none;
+                box-shadow: none;
             }
             #compass-img {
                 width: 100%;
                 height: 100%;
                 object-fit: contain;
                 transition: transform 0.1s linear;
+                
             }
 
         `;
@@ -53,8 +54,9 @@
         // 이미지 생성
         const compassImg = document.createElement('img');
         compassImg.id = 'compass-img';
-        compassImg.src = '../img/compass.jpg'; // 이미지 경로 변경 필요
+        compassImg.src = '../img/compass.png'; // 이미지 경로 변경 필요
         compassImg.alt = 'Compass';
+
         
         // DOM에 추가
         compassContainer.appendChild(compassImg);

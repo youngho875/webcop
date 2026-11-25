@@ -867,6 +867,7 @@
     function resolvePickedDrawing(position) {
         const picked = viewer.scene.pick(position)?.id;
         let candidate = picked?._drawingOwner || picked?._lineOwner || picked;
+        // 전술도형이나 투명도 보조 객체를 클릭하면 실제 소유 객체를 선택한다.
         if (candidate?.parent?.customData?.multipointTacticalGraphic) candidate = candidate.parent;
         const owner = candidate && viewer.entities.values.find(entity =>
             !entity.customData?.isDrawingGroup && !entity.customData?.isMilitaryGroup &&
@@ -887,10 +888,13 @@
             ? (root.customData?.groupMembers || []) : [root];
         if (!targets.length) return;
         const allSelected = targets.every(entity => selectedEntities.includes(entity));
-        if (allSelected) selectedEntities = selectedEntities.filter(entity => !targets.includes(entity));
-        else targets.forEach(entity => {
-            if (!selectedEntities.includes(entity)) selectedEntities.push(entity);
-        });
+        if (allSelected) {
+            selectedEntities = selectedEntities.filter(entity => !targets.includes(entity));
+        } else {
+            targets.forEach(entity => {
+                if (!selectedEntities.includes(entity)) selectedEntities.push(entity);
+            });
+        }
         global.__suppressDrawingSelectionUntil = performance.now() + 300;
         updateSelectionBoxes();
         document.dispatchEvent(new CustomEvent('drawing-multi-selection-changed', {
@@ -919,6 +923,8 @@
         const { root, candidate } = resolvePickedDrawing(event.position);
         deleteTarget = candidate && (candidate.customData?.drawingType || isMilitaryEntity(candidate)) && !candidate.customData?.isDrawingGroup && !candidate.customData?.isMilitaryGroup ? candidate : null;
         if (root?.customData?.drawingType || isMilitaryEntity(root)) {
+            // Shift+드래그로 선택한 객체 중 하나를 우클릭한 경우에는 기존
+            // 다중 선택을 보존한다. 선택 밖의 객체를 우클릭할 때만 단일 선택한다.
             if (!shouldPreserveMultiSelection(root)) {
                 viewer.selectedEntity = root;
                 selectedGroup = root.customData?.isDrawingGroup || root.customData?.isMilitaryGroup ? root : null;
@@ -942,6 +948,7 @@
         editButton.disabled = !editableMilitaryEntity() && !editableOpacityEntity();
         copyButton.disabled = !selectedEntities.length;
         pasteButton.disabled = !global.DrawingClipboard?.hasCopy?.();
+        // 선택 객체가 2개 이상이면 우클릭 위치와 상관없이 그룹 기능을 제공한다.
         groupButton.disabled = selectedEntities.length < 2;
         ungroupButton.disabled = !hasGrouped;
         saveButton.disabled = !selectedEntities.length;
