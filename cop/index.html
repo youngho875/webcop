@@ -9,7 +9,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge, chrome=1" />
   <!-- Make the application on mobile take up the full browser screen and disable user scaling. -->
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>webcop</title>
+  <title>전장적응형 시연 프로그램</title>
   
   <link rel="stylesheet" href="node_modules/cesium/Build/Cesium/Widgets/widgets.css">
 
@@ -47,9 +47,9 @@
 <body>
   <div id="cesiumContainer"></div>
 
-        <script src="script/initialize.js?v=6"></script>
+        <script src="script/initialize.js"></script>
 
-        <script src="script/mousePosition.js?v=20260917-bottom-anchor"></script>
+        <script src="script/mousePosition.js"></script>
         
         <script src="script/polygonDrawing.js"></script>
          <script src="script/polyLineDrawing.js"></script>
@@ -59,11 +59,11 @@
         <script src="script/measure.js"></script>
         <!-- <script src="script/symbolDraw.js"></script> -->
         <script src="script/lineofsight.js"></script>
-        <script src="script/mapDraw.js?v=20260915-shape-3d-clamp"></script>
+        <script src="script/mapDraw.js"></script>
         <script src="script/compass.js"></script>
         <script src="script/mapScale.js"></script>
         <script src="script/domeDraw.js"></script>
-        <script src="script/airspace.js?v=20260912-menu-import"></script>
+        <script src="script/airspace.js"></script>
         <script src="script/radar.js"></script>
         <script src="script/billboard.js"></script>
         <!-- <script src="scripts/missile.js"></script> 
@@ -85,29 +85,29 @@
         <!-- MIL-STD-2525 멀티포인트 전술도형 렌더러 -->
         <script src="node_modules/@armyc2.c5isr.renderer/mil-sym-ts-web/C5Ren.umd.js"></script>
         <script src="icops/icop-vector-data.js"></script>
-        <script src="script/icopSvgRenderer.js?v=20260910-point7"></script>
-        <script src="icops/icop-definition-data.js?v=1"></script>
-        <script src="script/icopDefinitionRenderer.js?v=2"></script>
-        <script src="script/icopSymbolEditor.js?v=20260912-affiliation"></script>
-        <script src="script/unifiedControlPanel.js?v=20260912-affiliation"></script>
+        <script src="script/icopSvgRenderer.js"></script>
+        <script src="icops/icop-definition-data.js"></script>
+        <script src="script/icopDefinitionRenderer.js"></script>
+        <script src="script/icopSymbolEditor.js"></script>
+        <script src="script/unifiedControlPanel.js"></script>
         <script src="node_modules/vue/dist/vue.min.js"></script>
-        <script src="script/LayerManager.js?v=20260911-no-imagery-opacity"></script>
+        <script src="script/LayerManager.js"></script>
         <script src="script/gps.js"></script>
-        <script src="script/websocketLogWindow.js?v=2"></script>
-        <script src="script/gpsRealtime.js?v=20260917-manual-device"></script>
+        <script src="script/websocketLogWindow.js"></script>
+        <script src="script/gpsRealtime.js"></script>
         <script src="script/convertCoordinates.js"></script>
         <script src="script/coordinateDialog.js"></script>
-        <script src="script/communicationDialog.js?v=20260917-collapsible"></script>
-        <script src="script/socketSetting.js?v=20260917-separated"></script>
-        <script src="script/mqttSetting.js?v=20260917-separated"></script>
-        <script src="script/setting.js?v=20260917-separated"></script>
+        <script src="script/communicationDialog.js"></script>
+        <script src="script/socketSetting.js"></script>
+        <script src="script/mqttSetting.js"></script>
+        <script src="script/setting.js"></script>
         <!-- 온라인 CDN용 D3 (오프라인 운영에서는 사용하지 않음) -->
         <!-- <script src="https://cdn.jsdelivr.net/npm/d3@7"></script> -->
         <script src="node_modules/d3/dist/d3.min.js"></script>
-        <script src="script/terrainProfile.js?v=20260913-stable-drag"></script>
-        <script src="script/textDrawing.js?v=4"></script>
-        <script src="script/areaStylePanel.js?v=35"></script>
-        <script src="script/shapeDrawingCore.js?v=27"></script>
+        <script src="script/terrainProfile.js"></script>
+        <script src="script/textDrawing.js"></script>
+        <script src="script/areaStylePanel.js"></script>
+        <script src="script/shapeDrawingCore.js"></script>
         <script src="script/rectangleDrawing.js"></script>
         <script src="script/pentagonDrawing.js"></script>
         <script src="script/hexagonDrawing.js"></script>
@@ -119,12 +119,12 @@
         <script src="script/parallelogramDrawing.js"></script>
         <script src="script/trapezoidDrawing.js"></script>
         <script src="script/coneDrawing.js"></script>
-        <script src="script/menu.js?v=20260917-show-menu-left-only"></script>
+        <script src="script/menu.js"></script>
         <script src="script/drawingRotationManager.js"></script>
-        <script src="script/drawingClipboard.js?v=20260910-delete-menu"></script>
-        <script src="script/drawingGroupManager.js?v=20261125-ctrl-multi-select"></script>
+        <script src="script/drawingClipboard.js"></script>
+        <script src="script/drawingGroupManager.js"></script>
         <!-- <script src="scripts/moveMenu.js"></script> -->
-       <script src="script/dialogCollisionManager.js?v=4"></script>
+       <script src="script/dialogCollisionManager.js"></script>
        
         <script>initCompass();</script>
         <script>createScaleBar();</script>
