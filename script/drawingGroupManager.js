@@ -192,7 +192,7 @@
             viewer.container.appendChild(box);
             return;
         }
-        if (selectedEntities.length === 1 && viewer.selectedEntity) return;
+        if (selectedEntities.length === 1 && viewer.selectedEntity === selectedEntities[0]) return;
         selectedEntities.forEach(entity => {
             const rect = entityScreenBounds(entity);
             if (!rect) return;
@@ -860,6 +860,44 @@
     viewer.canvas.addEventListener('contextmenu', event => event.preventDefault());
     document.addEventListener('mousedown', event => { if (!event.target.closest?.('[data-action]')) contextMenu.style.display = 'none'; });
 
+    function shouldPreserveMultiSelection(entity) {
+        return !selectedGroup && selectedEntities.length > 1 && selectedEntities.includes(entity);
+    }
+
+    function resolvePickedDrawing(position) {
+        const picked = viewer.scene.pick(position)?.id;
+        let candidate = picked?._drawingOwner || picked?._lineOwner || picked;
+        if (candidate?.parent?.customData?.multipointTacticalGraphic) candidate = candidate.parent;
+        const owner = candidate && viewer.entities.values.find(entity =>
+            !entity.customData?.isDrawingGroup && !entity.customData?.isMilitaryGroup &&
+            Array.isArray(entity.customData?.subEntities) && entity.customData.subEntities.includes(candidate));
+        if (owner) candidate = owner;
+        const root = candidate?.customData?.groupEntity || candidate;
+        return {
+            candidate,
+            root: root && (root.customData?.drawingType || isMilitaryEntity(root)) ? root : null
+        };
+    }
+
+    function toggleCtrlSelection(root) {
+        if (!root) return;
+        contextMenu.style.display = 'none';
+        selectedGroup = null;
+        const targets = root.customData?.isDrawingGroup || root.customData?.isMilitaryGroup
+            ? (root.customData?.groupMembers || []) : [root];
+        if (!targets.length) return;
+        const allSelected = targets.every(entity => selectedEntities.includes(entity));
+        if (allSelected) selectedEntities = selectedEntities.filter(entity => !targets.includes(entity));
+        else targets.forEach(entity => {
+            if (!selectedEntities.includes(entity)) selectedEntities.push(entity);
+        });
+        global.__suppressDrawingSelectionUntil = performance.now() + 300;
+        updateSelectionBoxes();
+        document.dispatchEvent(new CustomEvent('drawing-multi-selection-changed', {
+            detail: { entities: selectedEntities.slice() }
+        }));
+    }
+
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.canvas);
     handler.setInputAction(event => {
         dragStart = Cesium.Cartesian2.clone(event.position);
@@ -878,21 +916,15 @@
     }, Cesium.ScreenSpaceEventType.LEFT_UP);
     handler.setInputAction(event => {
         global.DrawingClipboard?.setPastePositionFromScreen?.(event.position);
-        const picked = viewer.scene.pick(event.position)?.id;
-        let candidate = picked?._drawingOwner || picked?._lineOwner || picked;
-        // Tactical areas are rendered as child entities; edit their owning symbol.
-        if (candidate?.parent?.customData?.multipointTacticalGraphic) candidate = candidate.parent;
-        const owner = candidate && viewer.entities.values.find(entity =>
-            !entity.customData?.isDrawingGroup && !entity.customData?.isMilitaryGroup &&
-            Array.isArray(entity.customData?.subEntities) && entity.customData.subEntities.includes(candidate));
-        if (owner) candidate = owner;
-        const root = candidate?.customData?.groupEntity || candidate;
+        const { root, candidate } = resolvePickedDrawing(event.position);
         deleteTarget = candidate && (candidate.customData?.drawingType || isMilitaryEntity(candidate)) && !candidate.customData?.isDrawingGroup && !candidate.customData?.isMilitaryGroup ? candidate : null;
         if (root?.customData?.drawingType || isMilitaryEntity(root)) {
-            viewer.selectedEntity = root;
-            selectedGroup = root.customData?.isDrawingGroup || root.customData?.isMilitaryGroup ? root : null;
-            selectedEntities = selectedGroup ? (selectedGroup.customData?.groupMembers || []).slice() : [root];
-        } else if (global.DrawingClipboard?.hasCopy?.()) {
+            if (!shouldPreserveMultiSelection(root)) {
+                viewer.selectedEntity = root;
+                selectedGroup = root.customData?.isDrawingGroup || root.customData?.isMilitaryGroup ? root : null;
+                selectedEntities = selectedGroup ? (selectedGroup.customData?.groupMembers || []).slice() : [root];
+            }
+        } else if (!selectedEntities.length && global.DrawingClipboard?.hasCopy?.()) {
             viewer.selectedEntity = undefined;
             selectedGroup = null;
             selectedEntities = [];
@@ -910,7 +942,7 @@
         editButton.disabled = !editableMilitaryEntity() && !editableOpacityEntity();
         copyButton.disabled = !selectedEntities.length;
         pasteButton.disabled = !global.DrawingClipboard?.hasCopy?.();
-        groupButton.disabled = selectedEntities.filter(entity => !entity.customData?.groupId && !entity.customData?.isDrawingGroup && !entity.customData?.isMilitaryGroup).length < 2;
+        groupButton.disabled = selectedEntities.length < 2;
         ungroupButton.disabled = !hasGrouped;
         saveButton.disabled = !selectedEntities.length;
         [editButton, copyButton, pasteButton, deleteButton, groupButton, ungroupButton, saveButton].forEach(button => { button.style.opacity = button.disabled ? '.4' : '1'; });
@@ -918,6 +950,9 @@
         contextMenu.style.top = `${event.position.y}px`;
         contextMenu.style.display = 'block';
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
+    handler.setInputAction(event => {
+        toggleCtrlSelection(resolvePickedDrawing(event.position).root);
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK, Cesium.KeyboardEventModifier.CTRL);
     viewer.selectedEntityChanged.addEventListener(entity => {
         contextMenu.style.display = 'none';
         layerSubmenu.style.display = 'none';
