@@ -860,8 +860,8 @@
     viewer.canvas.addEventListener('contextmenu', event => event.preventDefault());
     document.addEventListener('mousedown', event => { if (!event.target.closest?.('[data-action]')) contextMenu.style.display = 'none'; });
 
-    function shouldPreserveMultiSelection(entity) {
-        return !selectedGroup && selectedEntities.length > 1 && selectedEntities.includes(entity);
+    function shouldPreserveMultiSelection() {
+        return !selectedGroup && selectedEntities.length > 1;
     }
 
     function resolvePickedDrawing(position) {
@@ -923,9 +923,7 @@
         const { root, candidate } = resolvePickedDrawing(event.position);
         deleteTarget = candidate && (candidate.customData?.drawingType || isMilitaryEntity(candidate)) && !candidate.customData?.isDrawingGroup && !candidate.customData?.isMilitaryGroup ? candidate : null;
         if (root?.customData?.drawingType || isMilitaryEntity(root)) {
-            // Shift+드래그로 선택한 객체 중 하나를 우클릭한 경우에는 기존
-            // 다중 선택을 보존한다. 선택 밖의 객체를 우클릭할 때만 단일 선택한다.
-            if (!shouldPreserveMultiSelection(root)) {
+            if (!shouldPreserveMultiSelection()) {
                 viewer.selectedEntity = root;
                 selectedGroup = root.customData?.isDrawingGroup || root.customData?.isMilitaryGroup ? root : null;
                 selectedEntities = selectedGroup ? (selectedGroup.customData?.groupMembers || []).slice() : [root];
@@ -957,9 +955,22 @@
         contextMenu.style.top = `${event.position.y}px`;
         contextMenu.style.display = 'block';
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
-    handler.setInputAction(event => {
-        toggleCtrlSelection(resolvePickedDrawing(event.position).root);
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK, Cesium.KeyboardEventModifier.CTRL);
+    // macOS의 Ctrl+클릭은 contextmenu를 발생시킬 수 있으므로 포인터 입력으로 처리한다.
+    let modifiedClickStart = null;
+    viewer.canvas.addEventListener('pointerdown', event => {
+        modifiedClickStart = event.button === 0 && (event.ctrlKey || event.metaKey) && !event.shiftKey
+            ? { id: event.pointerId, x: event.clientX, y: event.clientY } : null;
+    });
+    viewer.canvas.addEventListener('pointercancel', () => { modifiedClickStart = null; });
+    viewer.canvas.addEventListener('pointerup', event => {
+        const start = modifiedClickStart;
+        modifiedClickStart = null;
+        if (!start || start.id !== event.pointerId || event.button !== 0 ||
+            Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;
+        const bounds = viewer.canvas.getBoundingClientRect();
+        const position = new Cesium.Cartesian2(event.clientX - bounds.left, event.clientY - bounds.top);
+        toggleCtrlSelection(resolvePickedDrawing(position).root);
+    });
     viewer.selectedEntityChanged.addEventListener(entity => {
         contextMenu.style.display = 'none';
         layerSubmenu.style.display = 'none';
